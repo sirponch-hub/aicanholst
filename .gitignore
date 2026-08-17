@@ -1,0 +1,18 @@
+# сгенерированные доски и превью
+*.holst
+_prev/
+preview/
+out/
+img/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# ос и редакторы
+.DS_Store
+.idea/
+.vscode/
