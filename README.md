@@ -1,6 +1,6 @@
-# holst-board
+# AI can Holst
 
-Скилл для Claude: генерация и чтение файлов онлайн-доски **[Холст](https://holst.ru)** (`.holst`).
+Скилл для Claude: генерация и чтение файлов онлайн-доски **[Холст](https://holst.so)** (`.holst`).
 
 Попросите Claude собрать доску — он напишет скрипт, соберёт `.holst`, проверит вёрстку
 и отдаст файл. Вы открываете его в Холсте через «восстановить доску из файла».
@@ -9,6 +9,8 @@
 Собери доску для ретроспективы на три команды: что мешало, что помогало,
 что попробуем — по кадру на команду.
 ```
+
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE)
 
 *[English below](#english)*
 
@@ -25,13 +27,14 @@
 | `references/layout.md` | Правила вёрстки: кадр 16:9, кегль, автоподгонка |
 | `references/format.md` | Разбор формата `.holst` |
 | `examples/retro.py` | Рабочий пример на три кадра |
+| `tests/` | Тесты библиотеки и валидатора |
 
 ## Установка
 
 **Claude Code / Cowork** — склонировать в папку скиллов:
 
 ```bash
-git clone https://github.com/<user>/holst-board ~/.claude/skills/holst-board
+git clone https://github.com/sirponch-hub/aicanholst.git ~/.claude/skills/holst-board
 ```
 
 Для проекта, а не глобально — в `.claude/skills/holst-board` внутри репозитория.
@@ -40,7 +43,7 @@ Claude подхватит скилл сам, когда речь зайдёт о
 **Как обычная библиотека** — без Claude тоже работает:
 
 ```bash
-git clone https://github.com/<user>/holst-board && cd holst-board
+git clone https://github.com/sirponch-hub/aicanholst.git && cd aicanholst
 python3 examples/retro.py && python3 scripts/validate.py retro.holst
 ```
 
@@ -88,16 +91,24 @@ python3 scripts/preview.py board.holst out/  # PNG кадров — посмот
 - `cairosvg` — для `preview.py` (без него сохраняются `.svg`);
 - `pymupdf` — если тянете картинки из PDF-исходников.
 
+## Тесты
+
+```bash
+python3 -m unittest discover tests
+```
+
 ## Статус и ограничения
 
-Формат разобран реверс-инжинирингом и подтверждён экспериментально: сгенерированные
-файлы открываются в Холсте со всеми объектами, связями и форматированием. Официальной
-спецификации нет — формат может измениться без предупреждения.
+Формат разобран по штатной выгрузке доски и подтверждён экспериментально:
+сгенерированные файлы открываются в Холсте со всеми объектами, связями и
+форматированием. Официальной спецификации нет — формат может измениться
+без предупреждения.
 
 Не покрыто: таблицы (`table` / `table-cell`) — собираются вручную по образцу из
 выгрузки, см. [`references/format.md`](references/format.md).
 
-Проект не связан с ООО «Холст» и не является официальным.
+Проект неофициальный и не связан с ООО «Холст». Как разбирался формат и как это
+соотносится с пользовательским соглашением Холста — в [NOTICE.md](NOTICE.md).
 
 ## Вклад
 
@@ -106,7 +117,9 @@ Issues и PR приветствуются. Если формат где-то п�
 
 ## Лицензия
 
-MIT — см. [LICENSE](LICENSE).
+[CC BY-NC-SA 4.0](LICENSE) — © 2026 Mikhail Podurets.
+Пользоваться и дорабатывать можно со ссылкой на автора; производные — на тех же
+условиях; коммерческое использование не допускается.
 
 ---
 
@@ -114,9 +127,9 @@ MIT — см. [LICENSE](LICENSE).
 
 ## English
 
-**holst-board** is a Claude skill (and standalone Python library) for generating and
-reading `.holst` files — board exports for [Holst](https://holst.ru), a Russian online
-whiteboard similar to Miro.
+**AI can Holst** is a Claude skill (and standalone Python library) for generating and
+reading `.holst` files — board exports for [Holst](https://holst.so), a Russian online
+whiteboard positioned as a Miro replacement.
 
 Ask Claude to build a board and it writes the script, generates the `.holst`, validates
 the layout and hands you the file. You import it in Holst via "restore board from file".
@@ -124,7 +137,7 @@ the layout and hands you the file. You import it in Holst via "restore board fro
 **Install** into your skills folder:
 
 ```bash
-git clone https://github.com/<user>/holst-board ~/.claude/skills/holst-board
+git clone https://github.com/sirponch-hub/aicanholst.git ~/.claude/skills/holst-board
 ```
 
 **Or use it directly:**
@@ -148,8 +161,12 @@ frames as PNG.
 (`4800 × 2700`) and size type as a share of frame height — headings 6–8%, body 3%,
 nothing below 2%. Boards built as wide sheets are unreadable in the room.
 
-The documentation, API docstrings and the skill instructions are in Russian, since Holst
-is a Russian product — but the API itself is plain English and usable without it.
+The documentation, docstrings and skill instructions are in Russian, since Holst is a
+Russian product — but the API itself is plain English and usable without it.
 
-The format was reverse-engineered and verified experimentally; there is no official spec,
-so it may change. Not affiliated with Holst. MIT licensed.
+The format was reconstructed from Holst's own board export (user content, not the
+service's code) and verified experimentally; there is no official spec, so it may change.
+See [NOTICE.md](NOTICE.md). Unaffiliated with Holst.
+
+Licensed [CC BY-NC-SA 4.0](LICENSE) — © 2026 Mikhail Podurets. Use and adapt with
+attribution, share alike, no commercial use.
