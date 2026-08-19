@@ -46,7 +46,8 @@ DARK_GRAY = 0x808080
 DEFAULT_FONT = "OpenSans"
 
 # ---------------------------------------------------------------- типографика
-GLYPH_W, LINE_H = 0.585, 1.28   # ширина глифа кириллицы и интерлиньяж
+GLYPH_W, LINE_H = 0.585, 1.45   # ширина глифа кириллицы и интерлиньяж с запасом
+BOX_PAD = 0.6                   # вертикальные поля внутри фигуры, в долях кегля
 FS_FLOOR = 60                   # мельче — нечитаемо на кадре 4800x2700
 
 
@@ -54,6 +55,14 @@ def text_lines(text, width, fs):
     """Сколько строк займёт текст при данной ширине и кегле."""
     per = max(1, int(width / (GLYPH_W * fs)))
     return sum(max(1, math.ceil(len(l) / per)) for l in str(text).split("\n"))
+
+
+def box_h(text, w, fs, minimum=0):
+    """Высота, которая нужна фигуре шириной w, чтобы вместить текст кеглем fs.
+    Считай высоту полосы отсюда, а не подгоняй текст под заданную высоту."""
+    if not text:
+        return minimum
+    return max(minimum, text_lines(text, w - fs * 0.6, fs) * fs * LINE_H + fs * BOX_PAD)
 
 
 def fit_scale(text, width, budget, start, floor=4.0, step=0.2):
@@ -67,8 +76,8 @@ def fit_scale(text, width, budget, start, floor=4.0, step=0.2):
 
 def fit_fs(text, w, h, fs, floor=FS_FLOOR, step=4):
     """Уменьшает font_size фигуры, пока текст не уложится в её высоту.
-    Ниже floor не опускается: если текст не влезает даже так — режь текст."""
-    while fs - step >= floor and text_lines(text, w - fs * 0.6, fs) * fs * LINE_H > h * 0.94:
+    Ниже floor не опускается — дальше растите фигуру (см. shape(grow=True))."""
+    while fs - step >= floor and box_h(text, w, fs) > h:
         fs -= step
     return fs
 
@@ -184,9 +193,9 @@ class Board:
 
     def text(self, x, y, text="", scale=4.0, width=400, color=DARK_GRAY, fill=None,
              halign="left", font=DEFAULT_FONT, fixed_width=False, parent=None,
-             bold=False, italic=False, bullets=False, rotation=0):
+             bold=False, italic=False, bullets=False, rotation=0, link=None):
         """Свободный текст. Кегль ≈ 14 * scale. bounds.height (40*scale) —
-        не фактическая высота: реальная = строки * кегль * 1.28."""
+        не фактическая высота: реальная = строки * кегль * 1.45."""
         h = 40.0 * scale
         o = self._base("simple-text", x, y, width * scale, h, parent)
         o.update({
@@ -202,15 +211,23 @@ class Board:
         })
         if fill is not None:
             o["fillColor"] = _color(fill)
+        if link:
+            o["linkTo"] = link
         return self._add(o)
 
     def shape(self, x, y, width, height, text="", shape_type="square", fill=WHITE,
               stroke=DARK_GRAY, stroke_width=2, stroke_opacity=1.0, stroke_style="solid",
               text_color=BLACK, font_size=26, font=DEFAULT_FONT, halign="center",
-              valign="center", rotation=0, parent=None, bold=False, autofit=True):
+              valign="center", rotation=0, parent=None, bold=False, autofit=True,
+              grow=True, link=None):
         """shape_type: square | ellipse | basic-star.
-        autofit=True ужимает кегль, если текст не влезает в высоту фигуры."""
-        fs = fit_fs(text, width, height, font_size) if (autofit and text) else font_size
+        autofit ужимает кегль до пола, grow дорастит высоту, если и так не влезает.
+        Обрезанного текста быть не должно."""
+        fs = font_size
+        if text and autofit:
+            fs = fit_fs(text, width, height, font_size)
+            if grow:
+                height = max(height, box_h(text, width, fs))
         o = self._base("shape", x, y, width, height, parent)
         o.update({
             "fillColor": _color(fill),
@@ -230,6 +247,8 @@ class Board:
             "fixedSize": True,
             "jsonState": _rich(text, bold=bold),
         })
+        if link:
+            o["linkTo"] = link
         return self._add(o)
 
     def image(self, x, y, path, width=None, height=None, parent=None, link_to=None):
@@ -256,15 +275,16 @@ class Board:
             o["linkTo"] = link_to
         return self._add(o)
 
-    def image_fit(self, x, y, box_w, box_h, path, parent=None):
+    def image_fit(self, x, y, box_w, box_h_, path, parent=None, link_to=None):
         """Картинка, вписанная в область с сохранением пропорций и центрированием.
-        Требует Pillow (pip install pillow)."""
+        Требует Pillow (pip install pillow). Параметр назван box_h_, чтобы не
+        перекрывать функцию box_h()."""
         from PIL import Image
         iw, ih = Image.open(path).size
-        k = min(box_w / iw, box_h / ih)
+        k = min(box_w / iw, box_h_ / ih)
         pw, ph = iw * k, ih * k
-        return self.image(x + (box_w - pw) / 2, y + (box_h - ph) / 2, path,
-                          width=pw, height=ph, parent=parent)
+        return self.image(x + (box_w - pw) / 2, y + (box_h_ - ph) / 2, path,
+                          width=pw, height=ph, parent=parent, link_to=link_to)
 
     def file(self, x, y, path, display_name=None, width=2400, height=1350,
              pages=1, scale=4.0, parent=None):

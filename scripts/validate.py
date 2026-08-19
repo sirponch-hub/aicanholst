@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Проверка .holst перед выдачей: схема + вместимость текста.
 
-    python scripts/validate.py board.holst
+    python scripts/validate.py board.holst            # свежесгенерированный файл
+    python scripts/validate.py board.holst --edited   # файл, прошедший через Холст
 
 Что ловит:
   • отсутствующие обязательные поля объектов;
   • архив собран со сжатием (Холст ждёт ZIP_STORED);
   • bounds не соответствует width * textScale;
   • текст не влезает в свою фигуру или стикер;
-  • объект уходит ниже границы кадра;
+  • объект уходит ниже или правее границы кадра;
   • кегль мельче 2% высоты кадра (нечитаемо).
+
+Флаг --edited для файлов, которые уже открывались в Холсте: редактор при
+сохранении пересчитывает bounds у simple-text по фактической ширине
+отрисованного текста, и расхождение там норма, а не порча. У стикеров
+инвариант держится всегда, поэтому он проверяется в обоих режимах.
 
 Выход: 0 — чисто, 1 — есть ошибки.
 """
@@ -21,7 +27,8 @@ import math
 import sys
 import zipfile
 
-GLYPH_W, LINE_H = 0.565, 1.28
+GLYPH_W, LINE_H = 0.565, 1.45
+BOX_PAD = 0.6                # вертикальные поля внутри фигуры, в долях кегля
 REQUIRED = ("id", "type", "position", "bounds", "zIndex", "created", "parentId")
 MIN_FS_RATIO = 0.02          # 2% высоты кадра
 TEXT_TYPES = ("sticker", "simple-text", "shape")
@@ -44,17 +51,19 @@ def font_size(obj):
 
 
 def need_height(obj):
-    """Фактическая высота текста объекта в пикселях."""
+    """Фактическая высота текста объекта в пикселях.
+    У фигур добавляются вертикальные поля — текст не лепится к краю."""
     lines = lines_of(obj)
     if not any(lines):
         return 0
     fs = font_size(obj)
+    pad = fs * BOX_PAD if obj["type"] == "shape" else 0
     width = obj["bounds"]["width"] - (fs * 0.6 if obj["type"] == "shape" else 0)
     per = max(1, int(width / (GLYPH_W * fs)))
-    return sum(max(1, math.ceil(len(l) / per)) for l in lines) * fs * LINE_H
+    return sum(max(1, math.ceil(len(l) / per)) for l in lines) * fs * LINE_H + pad
 
 
-def check(path):
+def check(path, edited=False):
     errors, warnings = [], []
 
     with zipfile.ZipFile(path) as z:
@@ -72,6 +81,15 @@ def check(path):
     frames = {o["id"]: o for o in objects if o["type"] == "frame"}
     ids = {o["id"] for o in objects}
 
+    # Имена кадров — это навигация в панели Холста; дубли делают её бесполезной.
+    seen = {}
+    for f in frames.values():
+        label = f.get("labelText", "")
+        seen[label] = seen.get(label, 0) + 1
+    for label, n in seen.items():
+        if n > 1:
+            warnings.append("ДУБЛЬ ИМЕНИ КАДРА (%d шт.): %s" % (n, label or "(без имени)"))
+
     # --- 1. схема
     prev_z = None
     for o in objects:
@@ -81,7 +99,9 @@ def check(path):
             continue
         if o["parentId"] and o["parentId"] not in ids:
             errors.append("%s: parentId ссылается в никуда" % o["type"])
-        if o["type"] in ("sticker", "simple-text"):
+        # У simple-text из отредактированного в Холсте файла bounds пересчитан
+        # редактором по фактической ширине текста — там расхождение это норма.
+        if o["type"] == "sticker" or (o["type"] == "simple-text" and not edited):
             expect = o["width"] * o["textScale"]
             if abs(o["bounds"]["width"] - expect) > 1:
                 errors.append("%s: bounds.width %.0f != width*textScale %.0f"
@@ -97,7 +117,7 @@ def check(path):
         if o["type"] not in TEXT_TYPES:
             continue
         need = need_height(o)
-        if need and o["type"] in ("shape", "sticker") and need > o["bounds"]["height"] * 0.96:
+        if need and o["type"] in ("shape", "sticker") and need > o["bounds"]["height"]:
             errors.append("НЕ ВЛЕЗАЕТ [%s]: %s" % (where(o, frames), preview(o)))
 
         frame = frames.get(o["parentId"])
@@ -127,10 +147,11 @@ def preview(obj, n=40):
 
 
 def main():
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    if not args:
         print(__doc__)
         return 2
-    errors, warnings, n_obj, n_frames = check(sys.argv[1])
+    errors, warnings, n_obj, n_frames = check(args[0], edited="--edited" in sys.argv)
 
     for w in warnings:
         print("⚠  " + w)

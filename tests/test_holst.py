@@ -12,7 +12,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 import holst  # noqa: E402
-from holst import Board, fit_fs, fit_scale, grid_size, load, object_text  # noqa: E402
+from holst import (Board, box_h, fit_fs, fit_scale, grid_size, load,  # noqa: E402
+                   object_text)
 from validate import check  # noqa: E402
 
 
@@ -121,8 +122,32 @@ class TestTypography(unittest.TestCase):
     def test_shape_autofit_reduces_font(self):
         b = Board()
         s = b.shape(0, 0, 400, 120, "Очень длинный текст который не влезает" * 2,
-                    font_size=90)
+                    font_size=90, grow=False)
         self.assertLess(s["fontSize"], 90)
+
+    def test_box_h_grows_with_text(self):
+        one = box_h("Коротко", 2000, 90)
+        many = box_h("Слово " * 60, 2000, 90)
+        self.assertGreater(many, one * 3)
+        self.assertEqual(box_h("", 2000, 90, minimum=190), 190)
+        self.assertGreaterEqual(box_h("Коротко", 2000, 90, minimum=190), 190)
+
+    def test_shape_grows_instead_of_clipping(self):
+        """При grow=True фигура обязана вместить текст даже на полу кегля."""
+        text = "Очень длинная подпись, которая никак не влезает в узкую полосу " * 3
+        b = Board()
+        s = b.shape(0, 0, 1200, 120, text, font_size=90)
+        self.assertGreater(s["bounds"]["height"], 120)
+        self.assertGreaterEqual(s["bounds"]["height"],
+                                box_h(text, 1200, s["fontSize"]))
+
+    def test_shape_keeps_height_when_grow_disabled(self):
+        b = Board()
+        s = b.shape(0, 0, 1200, 120, "текст " * 50, font_size=90, grow=False)
+        self.assertEqual(s["bounds"]["height"], 120)
+
+    def test_line_height_is_generous(self):
+        self.assertEqual(holst.LINE_H, 1.45)
 
 
 class TestAssets(unittest.TestCase):
@@ -135,6 +160,20 @@ class TestAssets(unittest.TestCase):
         b = Board()
         with self.assertRaises(FileNotFoundError):
             b.file(0, 0, "нет-такого.pdf")
+
+
+class TestLinks(unittest.TestCase):
+    def test_link_on_shape_and_text(self):
+        b = Board()
+        s = b.shape(0, 0, 100, 100, "к материалам", link="https://example.com")
+        t = b.text(0, 0, "к материалам", link="https://example.com")
+        self.assertEqual(s["linkTo"], "https://example.com")
+        self.assertEqual(t["linkTo"], "https://example.com")
+
+    def test_no_link_field_when_not_asked(self):
+        b = Board()
+        self.assertNotIn("linkTo", b.shape(0, 0, 100, 100, "x"))
+        self.assertNotIn("linkTo", b.text(0, 0, "x"))
 
 
 class TestArrows(unittest.TestCase):
@@ -168,9 +207,46 @@ class TestValidator(unittest.TestCase):
         b = Board("Кривая")
         f = b.slide(0, 0, "Кадр")
         b.shape(200, 200, 400, 120, "Длинный текст " * 12, font_size=90,
-                autofit=False, parent=f)
+                autofit=False, grow=False, parent=f)
         errors, _, _, _ = check(self._save(b))
         self.assertTrue(any("НЕ ВЛЕЗАЕТ" in e for e in errors))
+
+    def test_grown_shape_passes_validation(self):
+        """Фигура, выращенная под текст, не должна ловить 'НЕ ВЛЕЗАЕТ'."""
+        b = Board("Растущая")
+        f = b.slide(0, 0, "Кадр")
+        b.shape(200, 300, 2000, 120, "Длинная подпись колонки " * 4,
+                font_size=90, parent=f)
+        errors, _, _, _ = check(self._save(b))
+        self.assertEqual([e for e in errors if "НЕ ВЛЕЗАЕТ" in e], [])
+
+    def test_warns_on_duplicate_frame_names(self):
+        b = Board("Дубли")
+        b.slide(0, 0, "Упражнение")
+        b.slide(5220, 0, "Упражнение")
+        _, warnings, _, _ = check(self._save(b))
+        self.assertTrue(any("ДУБЛЬ ИМЕНИ" in w for w in warnings))
+
+    def test_edited_flag_skips_text_bounds_check(self):
+        """Холст пересчитывает bounds у simple-text — это не порча файла."""
+        b = Board("Из Холста")
+        f = b.slide(0, 0, "Кадр")
+        t = b.text(200, 300, "Правленый в Холсте текст", scale=6, parent=f)
+        t["bounds"]["width"] = 777.0          # как после сохранения редактором
+        path = self._save(b)
+
+        strict, _, _, _ = check(path)
+        relaxed, _, _, _ = check(path, edited=True)
+        self.assertTrue(any("bounds.width" in e for e in strict))
+        self.assertEqual([e for e in relaxed if "bounds.width" in e], [])
+
+    def test_sticker_bounds_checked_even_when_edited(self):
+        b = Board("Из Холста")
+        f = b.slide(0, 0, "Кадр")
+        s = b.sticker(200, 300, "x", scale=3, parent=f)
+        s["bounds"]["width"] = 999.0
+        errors, _, _, _ = check(self._save(b), edited=True)
+        self.assertTrue(any("bounds.width" in e for e in errors))
 
     def test_catches_object_below_frame(self):
         b = Board("Кривая")
