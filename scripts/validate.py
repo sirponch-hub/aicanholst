@@ -23,12 +23,14 @@
 from __future__ import annotations
 
 import json
-import math
+import os
 import sys
 import zipfile
 
-GLYPH_W, LINE_H = 0.565, 1.45
-BOX_PAD = 0.6                # вертикальные поля внутри фигуры, в долях кегля
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from holst import (BOX_PAD, FS_INTERNAL, LINE_H, LINE_INTERNAL,  # noqa: E402
+                   text_lines)
+
 REQUIRED = ("id", "type", "position", "bounds", "zIndex", "created", "parentId")
 MIN_FS_RATIO = 0.02          # 2% высоты кадра
 TEXT_TYPES = ("sticker", "simple-text", "shape")
@@ -43,24 +45,28 @@ def lines_of(obj):
 
 
 def font_size(obj):
-    if obj["type"] == "simple-text":
-        return 14 * obj.get("textScale", 1)
-    if obj["type"] == "sticker":
-        return 14 * obj.get("textScale", 1)     # Холст сам подгоняет, оценка сверху
+    """Фактический кегль на доске."""
+    if obj["type"] in ("simple-text", "sticker"):
+        # У стикера Холст подбирает кегль сам — это оценка сверху.
+        return FS_INTERNAL * obj.get("textScale", 1)
     return obj.get("fontSize", 30)
 
 
 def need_height(obj):
-    """Фактическая высота текста объекта в пикселях.
+    """Фактическая высота текста объекта в единицах доски.
     У фигур добавляются вертикальные поля — текст не лепится к краю."""
     lines = lines_of(obj)
     if not any(lines):
         return 0
     fs = font_size(obj)
+    if obj["type"] == "simple-text":
+        # Высота = число строк * 21 * textScale, поля не добавляются.
+        width = obj["width"] if obj.get("fixedWidth") else float("inf")
+        n = text_lines("\n".join(lines), width, FS_INTERNAL)
+        return n * LINE_INTERNAL * obj.get("textScale", 1)
     pad = fs * BOX_PAD if obj["type"] == "shape" else 0
     width = obj["bounds"]["width"] - (fs * 0.6 if obj["type"] == "shape" else 0)
-    per = max(1, int(width / (GLYPH_W * fs)))
-    return sum(max(1, math.ceil(len(l) / per)) for l in lines) * fs * LINE_H + pad
+    return text_lines("\n".join(lines), width, fs) * fs * LINE_H + pad
 
 
 def check(path, edited=False):
@@ -101,11 +107,17 @@ def check(path, edited=False):
             errors.append("%s: parentId ссылается в никуда" % o["type"])
         # У simple-text из отредактированного в Холсте файла bounds пересчитан
         # редактором по фактической ширине текста — там расхождение это норма.
-        if o["type"] == "sticker" or (o["type"] == "simple-text" and not edited):
+        # У текста с fixedWidth ширина рамки на полъединицы больше колонки
+        # набора: bounds.width = (width + 0.5) * textScale.
+        if o["type"] == "sticker":
             expect = o["width"] * o["textScale"]
-            if abs(o["bounds"]["width"] - expect) > 1:
-                errors.append("%s: bounds.width %.0f != width*textScale %.0f"
-                              % (o["type"], o["bounds"]["width"], expect))
+        elif o["type"] == "simple-text" and not edited and o.get("fixedWidth"):
+            expect = (o["width"] + 0.5) * o["textScale"]
+        else:
+            expect = None
+        if expect is not None and abs(o["bounds"]["width"] - expect) > 1:
+            errors.append("%s: bounds.width %.0f != ожидаемых %.0f"
+                          % (o["type"], o["bounds"]["width"], expect))
         if o["type"] == "image" and o["name"] not in assets:
             errors.append("image: файл %s отсутствует в архиве" % o["name"])
         if prev_z is not None and o["zIndex"] <= prev_z and not o.get("ignoreZIndex"):

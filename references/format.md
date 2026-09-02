@@ -43,8 +43,17 @@ data.json
 | `parentId` | uuid или `null` | принадлежность фрейму/группе |
 | `updated` | `null` | |
 
-Цвета — десятичный `int` (`0xRRGGBB`). Заливка — объект: `{"color": 16777215, "opacity": 1}`.
-Холст принимает и строковые токены палитры (`"yellow4"`, `"gray3"`), но int надёжнее.
+## Цвета
+
+Два равноправных вида, оба оборачиваются в объект
+`{"color": <int|токен>, "opacity": 1}`:
+
+- **int** `0xRRGGBB` — произвольный цвет, единственный способ задать свой.
+- **строковый токен палитры Холста** — шкала в духе Radix. Точный список
+  неизвестен; проверены `white3`, `white6`, `gray3`, `gray12`, `pink10`,
+  `red10`, `violet10`. Токен точнее попадает в фирменную палитру приложения.
+
+В библиотеке токены доступны как `WHITE3`, `GRAY12`, `RED10` и так далее.
 
 ## Типы объектов
 
@@ -52,12 +61,13 @@ data.json
 |---|---|
 | `frame` | `labelText`, `fillColor`, `isContentHidden` |
 | `sticker` | `textScale`, `fillColor`, `jsonState`, `reactions: []` |
-| `simple-text` | `textScale`, `fixedWidth`, `fontFamily`, `textColor` |
-| `shape` | `shapeType`: `square` / `ellipse` / `basic-star`; `fontSize`, `strokeStyle` |
+| `simple-text` | `textScale`, `fixedWidth`, `textColor`; `fontFamily` выставлять не нужно |
+| `shape` | `shapeType`: `square` / `ellipse` / `basic-star`; `fontSize` — **абсолютный** кегль в единицах доски; `strokeWidth` тоже в единицах доски, на кадре 4800 рабочие значения 4–12 |
 | `arrow` | `start`/`end` с `objectId` + `relativePoint` (0..1) для привязки к объекту; `arrowType`: `straight`/`curved`/`elbow`; наконечники `none`/`triangle-filled`/`arc`/`miro` |
-| `image` | `name` = имя файла в архиве; опц. `cropTransform`, `linkTo` |
+| `image` | `name` = имя файла в архиве (не обязано совпадать с `id`, на один файл могут ссылаться несколько объектов); `naturalWidth`/`naturalHeight` — пиксельный размер исходника, `imageType`, `originalName`; опц. `cropTransform`, `linkTo` |
+| `flip-card` | логический размер `220×320`, `bounds` = логический × `scale`; `side`: `front`/`back`; `frontDocumentId`/`backDocumentId` — просто uuid; текст в `frontJsonState`/`backJsonState` |
 | `file` | вложенный PDF: `fileName`, `pagesInfo`, `pinnedPage`, `displayType: "content"` |
-| `link` | `link` + `linkInfo` (title, description, faviconKey) |
+| `link` | `link`, `displayType: 1`, `linkInfo` (title, description, imageKey, faviconKey). Логическая ширина **300**, высота зависит от описания: 111 в одну строку, +22,5 за каждую следующую (≈46 знаков в строке). Промахнётесь — Холст переверстает сам, разъедется только рамка выделения |
 | `stamp` | `data: {"type": "textStamp", "text": "👍"}` |
 | `drawing` | `path` — плоская строка `"x1,y1,x2,y2,…"`, `algorithm`: `lazy` (сглаживает) / `simple` |
 | `group` | только `bounds` + `ignoreZIndex: true`; дети ссылаются через `parentId` |
@@ -72,27 +82,58 @@ data.json
 Если доска делается в чьём-то фирменном стиле, шрифт задавай явно во всех вызовах:
 смешение двух гарнитур на доске заметно сразу.
 
-## Две неочевидные вещи
+## Геометрия текста
 
-**1. `textScale` — множитель всего объекта, а не кегль.**
-Фактический размер = `width × textScale`, и `bounds` обязан это учитывать.
-У стикера `width: 192` — «логический» размер. Отсюда: стикер нельзя растягивать
-как баннер, `scale` тянет и ширину, и высоту.
+Самое неочевидное в формате. Холст набирает `simple-text` шрифтом **Inter**,
+и внутри объекта кегль всегда один и тот же — масштабируется весь блок целиком:
 
-**2. Текст сериализуется дважды.**
+- Внутренний кегль всегда **14**, внутренняя высота строки — **21**
+  (те же единицы, что и поле `width`). Отсюда интерлиньяж ровно **1,5**.
+- Фактический кегль на доске = `14 × textScale`, высота строки = `21 × textScale`.
+- Ширина колонки набора на доске = `width × textScale`, то есть
+  `width = ширина_в_единицах_доски / textScale`.
+- `bounds.height` = `число_строк × 21 × textScale`.
+- `bounds.width` = `(width + 0.5) × textScale` при `fixedWidth: true`.
+  Без `fixedWidth` перенос не делается вовсе, а `bounds.width` растёт по самой
+  длинной строке.
+
+Чтобы посчитать число строк, нужно повторить перенос Холста — для этого в
+`scripts/inter_widths.json` лежит таблица ширин глифов Inter (Regular и SemiBold),
+а в библиотеке есть `ems()` и `text_lines()`.
+
+**Шрифт задавать не нужно.** В штатной выгрузке поля `fontFamily` у текста нет:
+Холст набирает всю доску своим Inter. Если выставить `fontFamily` явно, этот блок
+будет набран другой гарнитурой, чем вся остальная доска.
+
+**`textScale` у остальных типов — множитель всего объекта, а не кегль.**
+Итоговый размер = логический × `textScale`, и `bounds` обязан это учитывать.
+У стикера логический размер `192×192` (широкий — `384×192`), у флип-карты
+`220×320`, у карточки ссылки ширина `300`. Отсюда: стикер нельзя растягивать
+как баннер — масштаб тянет и ширину, и высоту.
+
+**`bounds` — не декорация.** Холст берёт из него рамку выделения и вписывание
+во фрейм. Разъехался с фактическим размером — объект ведёт себя странно.
+
+## Текст: двойная сериализация
+
 `jsonState.children` — это *строка*, внутри которой JSON-массив Slate-подобных
 узлов. Каждый абзац обёрнут в `wrapper` с UUID-ключом:
 
 ```json
-{"type": "wrapper", "key": "<uuid>", "children": [
+[{"type": "wrapper", "key": "<uuid>", "children": [
   {"type": "paragraph", "key": "<uuid>", "children": [
-    {"text": "Привет", "bold": true, "color": 1710618}
+    {"bold": true, "text": "Цель: "},
+    {"text": "сгенерировать идеи"}
   ]}
-]}
+]}]
 ```
 
 Типы блоков: `paragraph`, `initial` (пустая строка), `ul-list-item`, `ol-list-item`.
-Свойства листа: `bold`, `italic`, `color`.
+У `ol-list-item` есть необязательный `counter` — им нумерация начинается заново;
+ставь `counter: 1` первому пункту, иначе список продолжит нумерацию предыдущего
+списка в том же объекте.
+
+Свойства листа: `bold`, `italic`, `color` (int или токен палитры).
 
 ## Чтение доски
 

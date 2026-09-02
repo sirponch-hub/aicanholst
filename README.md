@@ -22,11 +22,13 @@
 |---|---|
 | `SKILL.md` | Инструкция для модели |
 | `scripts/holst.py` | Библиотека сборки `.holst` — только stdlib |
+| `scripts/inter_widths.json` | Метрика Inter: по ней считается перенос строк |
 | `scripts/validate.py` | Проверка файла: схема + не вылезает ли текст |
 | `scripts/preview.py` | Рендер кадров в PNG, чтобы посмотреть глазами |
 | `references/layout.md` | Правила вёрстки: кадр 16:9, кегль, автоподгонка |
 | `references/format.md` | Разбор формата `.holst` |
-| `examples/retro.py` | Рабочий пример на три кадра |
+| `references/editing.md` | Точечная правка чужой выгрузки |
+| `examples/retro.py` | Рабочий пример на четыре кадра |
 | `tests/` | Тесты библиотеки и валидатора |
 
 ## Установка
@@ -54,18 +56,21 @@ import sys; sys.path.insert(0, "scripts")
 from holst import Board, YELLOW, GREEN
 
 b = Board("Планирование")
-f = b.slide(0, 0, "Идеи спринта")          # кадр 16:9, 4800×2700
 
-b.text(300, 200, "Идеи спринта", scale=12, width=350, bold=True, parent=f)
-b.sticker_grid(300, 800, ["Онбординг", "Поиск", "Экспорт"],
-               cols=3, color=YELLOW, scale=4, parent=f)
+s = b.page("Идеи спринта")                 # кадр 16:9, 4800×2700, с курсором
+s.title("Идеи спринта")
+s.body("**Один стикер — одна мысль.** 10 минут, потом читаем вслух")
+s.sticker_grid(["Онбординг", "Поиск", "Экспорт"], cols=3, color=YELLOW)
 
-a = b.shape(300, 2000, 1200, 300, "Проблема", fill=YELLOW, font_size=90, parent=f)
-c = b.shape(2000, 2000, 1200, 300, "Решение", fill=GREEN, font_size=90, parent=f)
+a = s.shape(300, 2000, 1200, 300, "Проблема", fill=YELLOW, font_size=90)
+c = s.shape(2000, 2000, 1200, 300, "Решение", fill=GREEN, font_size=90)
 b.arrow_between(a, c)
 
 b.save("board.holst")
 ```
+
+Заголовок, текст и сетка встают друг под другом сами. Координатный API рядом:
+`b.slide(x, y, label)` даёт голый фрейм, если раскладку хочется считать вручную.
 
 Проверить перед отправкой:
 
@@ -107,8 +112,16 @@ python3 -m unittest discover tests
 Не покрыто: таблицы (`table` / `table-cell`) — собираются вручную по образцу из
 выгрузки, см. [`references/format.md`](references/format.md).
 
+Не покрыто также: вложенный PDF (`file`) описан, но обратным импортом не проверен.
+
+Геометрия текста выверена по замерам из проекта
+[holst-board](https://github.com/soloveev/holst-board) (Дмитрий Соловьёв), откуда
+взята и таблица метрик Inter — см. [NOTICE.md](NOTICE.md). Обмен вышел взаимным:
+разбор стрелок, рисунков и групп он взял отсюда.
+
 Проект неофициальный и не связан с ООО «Холст». Как разбирался формат и как это
 соотносится с пользовательским соглашением Холста — в [NOTICE.md](NOTICE.md).
+История изменений — в [CHANGELOG.md](CHANGELOG.md).
 
 ## Вклад
 

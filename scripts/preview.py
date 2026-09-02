@@ -20,7 +20,28 @@ import os
 import sys
 import zipfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from holst import FS_INTERNAL, LINE_H, ems  # noqa: E402
+
 ESC = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
+
+
+def wrap(text, width, fs):
+    """Перенос строк той же метрикой Inter, что использует сборка."""
+    if width <= 0:
+        return [text]
+    out = []
+    for para in str(text).split("\n"):
+        cur = ""
+        for i, word in enumerate(para.split(" ")):
+            candidate = (cur + " " + word) if cur else word
+            if cur and ems(candidate) * fs > width:
+                out.append(cur)
+                cur = word
+            else:
+                cur = candidate
+        out.append(cur)
+    return out
 
 
 def esc(s):
@@ -79,19 +100,24 @@ def render_frame(frame, objects, assets):
             out.append('<image x="%f" y="%f" width="%f" height="%f" xlink:href="data:image/%s;base64,%s"/>'
                        % (x, y, w, h, ext, b64))
 
-        lines = [l for l in lines_of(o) if l]
-        if lines:
-            fs = 14 * o["textScale"] if t in ("simple-text", "sticker") else o.get("fontSize", 30)
-            anchor = {"center": "middle", "right": "end"}.get(o.get("horizontalAlign"), "start")
+        raw = [l for l in lines_of(o) if l]
+        if raw:
+            fs = (FS_INTERNAL * o["textScale"] if t in ("simple-text", "sticker")
+                  else o.get("fontSize", 30))
+            # Переносим так же, как считает сборка — переполнение видно сразу.
+            box = w - (fs * 0.6 if t == "shape" else 0)
+            lines = wrap("\n".join(raw), box, fs) if t != "sticker" else raw
+            anchor = {"center": "middle", "right": "end"}.get(
+                o.get("horizontalAlign"), "start")
             tx = x + (w / 2 if anchor == "middle" else (w if anchor == "end" else 0))
             ty = y + fs
             if t in ("shape", "sticker"):
-                ty = y + h / 2 - (len(lines) - 1) * fs * 0.64 + fs * 0.35
+                ty = y + h / 2 - (len(lines) - 1) * fs * LINE_H / 2 + fs * 0.35
             color = hexc(o.get("textColor"), "#1a1a1a")
             for i, line in enumerate(lines):
-                out.append('<text x="%f" y="%f" font-family="sans-serif" font-size="%f" '
-                           'fill="%s" text-anchor="%s">%s</text>'
-                           % (tx, ty + i * fs * 1.28, fs, color, anchor, esc(line)))
+                out.append('<text x="%f" y="%f" font-family="Inter, sans-serif" '
+                           'font-size="%f" fill="%s" text-anchor="%s">%s</text>'
+                           % (tx, ty + i * fs * LINE_H, fs, color, anchor, esc(line)))
 
     out.append("</svg>")
     return "\n".join(out)

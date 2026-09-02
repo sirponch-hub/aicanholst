@@ -55,12 +55,31 @@ class TestGeometry(unittest.TestCase):
         self.assertEqual(f["bounds"]["width"] / f["bounds"]["height"], 16 / 9)
         self.assertEqual(f["bounds"]["width"], 4800)
 
-    def test_bounds_match_text_scale(self):
+    def test_sticker_bounds_match_scale(self):
         b = Board()
         s = b.sticker(0, 0, "x", scale=3)
         self.assertEqual(s["bounds"]["width"], s["width"] * s["textScale"])
-        t = b.text(0, 0, "x", scale=5, width=400)
-        self.assertEqual(t["bounds"]["width"], t["width"] * t["textScale"])
+
+    def test_text_bounds_follow_measured_model(self):
+        """Холст хранит рамку на полъединицы шире колонки набора,
+        а высоту — числом строк по 21 внутренней единице."""
+        b = Board()
+        t = b.text(0, 0, "короткая строка", scale=5, width=400)
+        self.assertEqual(t["bounds"]["width"], (t["width"] + 0.5) * t["textScale"])
+        self.assertEqual(t["bounds"]["height"], 1 * 21 * t["textScale"])
+
+    def test_text_height_grows_by_lines(self):
+        b = Board()
+        one = b.text(0, 0, "строка", scale=6, width_units=3000)
+        many = b.text(0, 0, "слово " * 120, scale=6, width_units=3000)
+        self.assertGreater(many["bounds"]["height"], one["bounds"]["height"] * 5)
+        self.assertEqual(many["bounds"]["height"] % (21 * 6), 0)
+
+    def test_font_family_not_forced(self):
+        """Холст набирает доску своим шрифтом; чужой fontFamily её ломает."""
+        b = Board()
+        self.assertNotIn("fontFamily", b.text(0, 0, "x"))
+        self.assertEqual(b.text(0, 0, "x", font="Bangers")["fontFamily"], "Bangers")
 
     def test_z_index_grows(self):
         b = Board()
@@ -146,8 +165,17 @@ class TestTypography(unittest.TestCase):
         s = b.shape(0, 0, 1200, 120, "текст " * 50, font_size=90, grow=False)
         self.assertEqual(s["bounds"]["height"], 120)
 
-    def test_line_height_is_generous(self):
-        self.assertEqual(holst.LINE_H, 1.45)
+    def test_line_height_matches_holst_internals(self):
+        """Внутренний кегль 14, высота строки 21 → интерлиньяж ровно 1.5."""
+        self.assertEqual(holst.LINE_H, 1.5)
+        self.assertEqual(holst.LINE_INTERNAL / holst.FS_INTERNAL, holst.LINE_H)
+
+    def test_inter_metrics_loaded(self):
+        self.assertGreater(len(holst.REGULAR), 150)
+        self.assertIn("ж", holst.REGULAR)
+        self.assertGreater(holst.ems("Ш"), holst.ems("i"))
+        self.assertGreater(holst.ems("Привет", bold=True),
+                           holst.ems("Привет", bold=False))
 
 
 class TestAssets(unittest.TestCase):
@@ -160,6 +188,109 @@ class TestAssets(unittest.TestCase):
         b = Board()
         with self.assertRaises(FileNotFoundError):
             b.file(0, 0, "нет-такого.pdf")
+
+
+class TestMarkdown(unittest.TestCase):
+    def _nodes(self, obj):
+        return json.loads(obj["jsonState"]["children"])
+
+    def test_bold_italic_and_color(self):
+        b = Board()
+        t = b.text(0, 0, "обычный **жирный** и *курсив* и {red10|цветной}")
+        leaves = self._nodes(t)[0]["children"][0]["children"]
+        marks = {l["text"]: l for l in leaves}
+        self.assertTrue(marks["жирный"]["bold"])
+        self.assertTrue(marks["курсив"]["italic"])
+        self.assertEqual(marks["цветной"]["color"], "red10")
+        self.assertNotIn("bold", marks["обычный "])
+
+    def test_hex_color_token(self):
+        b = Board()
+        t = b.text(0, 0, "{0xFF0002|красный}")
+        leaf = self._nodes(t)[0]["children"][0]["children"][0]
+        self.assertEqual(leaf["color"], 0xFF0002)
+
+    def test_markdown_can_be_disabled(self):
+        b = Board()
+        t = b.text(0, 0, "звёздочки **остаются**", markdown=False)
+        leaf = self._nodes(t)[0]["children"][0]["children"][0]
+        self.assertEqual(leaf["text"], "звёздочки **остаются**")
+
+    def test_markup_does_not_count_towards_width(self):
+        """Разметка не должна раздувать расчёт переноса."""
+        b = Board()
+        plain = b.text(0, 0, "жирный текст", scale=6, width_units=3000)
+        marked = b.text(0, 0, "**жирный** текст", scale=6, width_units=3000)
+        self.assertEqual(plain["bounds"]["height"], marked["bounds"]["height"])
+
+    def test_ordered_list_restarts_numbering(self):
+        b = Board()
+        t = b.text(0, 0, "первый\nвторой", block="ol-list-item")
+        blocks = [n["children"][0] for n in self._nodes(t)]
+        self.assertEqual(blocks[0]["counter"], 1)
+        self.assertNotIn("counter", blocks[1])
+        self.assertEqual(blocks[1]["type"], "ol-list-item")
+
+
+class TestNewObjects(unittest.TestCase):
+    def test_flip_card_has_both_sides(self):
+        b = Board()
+        c = b.flip_card(0, 0, "вопрос", "ответ", scale=3)
+        self.assertEqual(c["bounds"]["width"], 220 * 3)
+        self.assertEqual(c["bounds"]["height"], 320 * 3)
+        self.assertNotEqual(c["frontDocumentId"], c["backDocumentId"])
+        self.assertIn("вопрос", object_text(c))
+        self.assertIn("ответ", object_text(c))
+
+    def test_link_height_grows_with_description(self):
+        b = Board()
+        short = b.link(0, 0, "https://holst.so", "Холст", "коротко", scale=4)
+        long = b.link(0, 0, "https://holst.so", "Холст", "о" * 140, scale=4)
+        self.assertEqual(short["bounds"]["width"], 300 * 4)
+        self.assertEqual(short["bounds"]["height"], 111 * 4)
+        self.assertGreater(long["bounds"]["height"], short["bounds"]["height"])
+
+
+class TestSlideCursor(unittest.TestCase):
+    def test_blocks_stack_without_manual_coordinates(self):
+        b = Board()
+        s = b.page("Кадр")
+        t = s.title("Заголовок")
+        body = s.body("Текст задания")
+        self.assertGreaterEqual(body["bounds"]["y"],
+                                t["bounds"]["y"] + t["bounds"]["height"])
+        self.assertEqual(t["parentId"], s.frame["id"])
+
+    def test_page_advances_grid_and_new_row(self):
+        b = Board()
+        a = b.page("A")
+        c = b.page("B")
+        self.assertGreater(c.x, a.x)
+        self.assertEqual(c.y, a.y)
+        b.new_row()
+        d = b.page("C")
+        self.assertEqual(d.x, a.x)
+        self.assertGreater(d.y, a.y)
+
+    def test_columns_split_content_width(self):
+        b = Board()
+        s = b.page("Кадр")
+        cols = s.columns(3, gap=60)
+        self.assertEqual(len(cols), 3)
+        total = sum(w for _, w in cols) + 2 * 60
+        self.assertAlmostEqual(total, s.content_w, places=6)
+        self.assertAlmostEqual(cols[0][0], s.left, places=6)
+
+    def test_grid_shrinks_to_fit_remaining_space(self):
+        """Сетка обязана ужаться, а не вылезти за нижнее поле кадра."""
+        b = Board()
+        s = b.page("Кадр")
+        s.title("Заголовок")
+        s.body("Задание в одну строку")
+        stickers = s.empty_grid(4, 3)
+        lowest = max(o["bounds"]["y"] + o["bounds"]["height"] for o in stickers)
+        self.assertLessEqual(lowest, s.bottom + 1)
+        self.assertEqual(len(stickers), 12)
 
 
 class TestLinks(unittest.TestCase):
@@ -279,7 +410,7 @@ class TestExample(unittest.TestCase):
                        cwd=tmp, check=True, capture_output=True)
         errors, _, n_obj, n_frames = check(os.path.join(tmp, "retro.holst"))
         self.assertEqual(errors, [])
-        self.assertEqual(n_frames, 3)
+        self.assertEqual(n_frames, 4)       # три команды + сведение
         self.assertGreater(n_obj, 3)
 
 

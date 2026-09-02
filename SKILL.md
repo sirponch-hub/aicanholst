@@ -35,55 +35,72 @@ license: CC-BY-NC-SA-4.0
 | `references/format.md` | Когда нужен объект, не покрытый библиотекой (таблицы, `cropTransform`), или разбор чужой выгрузки |
 | `references/editing.md` | Когда правишь присланную пользователем доску, а не собираешь новую |
 | `scripts/holst.py` | Библиотека сборки. Копировать в рабочую папку, не переписывать |
+| `scripts/inter_widths.json` | Метрика Inter — по ней считается перенос строк. Нужна рядом с `holst.py` |
 | `scripts/validate.py` | Проверка готового файла: схема + вместимость текста |
 | `scripts/preview.py` | Рендер кадров в PNG, чтобы посмотреть композицию глазами |
 | `examples/retro.py` | Рабочий пример: ретроспектива на три команды |
 
 ## Минимальный пример
 
+Основной способ — курсорный: блоки встают друг под другом сами.
+
 ```python
 import sys; sys.path.insert(0, "путь/к/скиллу/scripts")
-from holst import Board, fit_scale, RED, GREEN, BLUE, WHITE
+from holst import Board, RED, GREEN, BLUE, WHITE
 
-W, H, PAD = 4800, 2700, 200
 b = Board("Ретроспектива спринта")
 
-f = b.slide(0, 0, "Что мешало нам в спринте")
-title = "Что мешало нам в спринте"
-ts = fit_scale(title, W - 2 * PAD, 285, 12.0, floor=6.0)
-b.text(PAD, 110, title, scale=ts, width=int((W - 2 * PAD) / ts),
-       halign="center", fixed_width=True, bold=True, parent=f)
+s = b.page("Что мешало нам в спринте")       # кадр 16:9 на следующем месте сетки
+s.title("Что мешало нам в спринте")
+s.body("**Один стикер — одна мысль.** 10 минут, потом читаем вслух")
+s.gap(60)
 
-cw = (W - 2 * PAD - 120) / 3
-for j, (name, color) in enumerate([("Мешало", RED), ("Помогало", GREEN), ("Попробуем", BLUE)]):
-    x = PAD + j * (cw + 60)
-    b.shape(x, 700, cw, 190, name, fill=color, stroke=color, font_size=90, parent=f)
-    b.shape(x, 890, cw, 1400, fill=WHITE, stroke=0xBFBFBF, parent=f)
-    b.empty_grid(x + 40, 940, 2, 2, cw - 80, 1300, color=color, parent=f)
+top = s.cursor
+for (name, color), (x, w) in zip([("Мешало", RED), ("Помогало", GREEN),
+                                  ("Попробуем", BLUE)], s.columns(3)):
+    s.shape(x, top, w, 190, name, fill=color, stroke=color, font_size=90)
+    s.shape(x, top + 190, w, s.bottom - top - 190, fill=WHITE, stroke=0xBFBFBF)
+    s.sticker_grid([""] * 4, cols=2, color=color, width=w - 80,
+                   x=x + 40, y=top + 240, box_h_=s.bottom - top - 290)
+
+b.new_row()                                   # следующая строка кадров
+s = b.page("Что забираем в следующий спринт")
+s.title("Что забираем в следующий спринт")
+s.bullets(["что перестаём делать", "что начинаем"], ordered=True)
 
 b.save("board.holst")
 ```
 
-Полный пример с раскладкой на несколько кадров — в `examples/retro.py`.
+Полный пример — в `examples/retro.py`. Координатный API никуда не делся:
+`b.slide(x, y, label)` даёт голый фрейм, дальше всё через явные координаты.
 
 ## Что даёт библиотека
 
 `Board(name)` — доска. Методы создания объектов возвращают dict, который можно
 передавать как `parent=` или в `arrow_between`.
 
-- **Кадры:** `slide(x, y, label)` — кадр 16:9 4800×2700 (базовая единица),
-  `frame(x, y, w, h, label)` — произвольный.
+- **Кадры:** `page(label)` — кадр 16:9 на следующем месте сетки, с курсором;
+  `new_row()` — новая строка кадров; `slide(x, y, label)` — голый фрейм по
+  координатам; `frame(x, y, w, h, label)` — произвольный.
+- **Курсор кадра (`Slide`):** `title`, `body`, `bullets(ordered=)`, `caption`,
+  `gap(dy)`, `columns(n)`, `sticker_grid`, `empty_grid`, `image_fit`.
+  Свойства: `left`, `bottom`, `content_w`, `free_h`, `cursor`.
 - **Содержимое:** `sticker`, `text`, `shape` (`square`/`ellipse`/`basic-star`),
-  `image`, `image_fit`, `file` (PDF), `link`, `stamp`, `drawing`, `group`.
+  `image`, `image_fit`, `flip_card`, `file` (PDF), `link`, `stamp`, `drawing`, `group`.
 - **Связи:** `arrow(x1, y1, x2, y2)`, `arrow_between(a, b)` — с привязкой к объектам.
-- **Сетки:** `sticker_grid(...)`, `empty_grid(...)` — вписываются в заданную область.
+- **Разметка в тексте:** `**жирный**`, `*курсив*`, `{red10|цветной}`, `\n` — новый
+  абзац. Отключается через `markdown=False`.
 - **Типографика:** `box_h(text, w, fs)` — сколько высоты нужно тексту (считай высоту
-  полосы отсюда), `fit_scale(text, width, budget, start)` для `text`,
-  `fit_fs(text, w, h, fs)` для `shape`, `grid_size(cols, rows, w, h)`.
+  полосы отсюда), `text_height(text, width_units, scale)`, `fit_scale(...)` для
+  текста, `fit_fs(...)` для фигур, `ems(text)` — ширина в em по метрике Inter.
+- **Роли текста:** `TITLE LEAD BODY SMALL SCALE_FLOOR` — готовые `textScale`.
 - **Ссылки:** `shape(link=...)`, `text(link=...)`, `image(link_to=...)` — поле `linkTo`.
 - **Чтение:** `load(path)` → data.json, `object_text(obj)` → плоский текст объекта.
 - **Цвета:** `YELLOW GREEN BLUE PINK ORANGE PURPLE RED GRAY WHITE BLACK DARK_GRAY`,
-  либо любой int `0xRRGGBB`.
+  токены палитры `WHITE3 GRAY3 GRAY12 PINK10 RED10 VIOLET10`, либо int `0xRRGGBB`.
+
+**Шрифт не задавай.** Холст набирает доску своим Inter; явный `font=` даст блок
+другой гарнитурой, чем вся остальная доска.
 
 ## Проверка
 
