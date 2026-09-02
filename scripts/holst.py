@@ -29,8 +29,9 @@ import zipfile
 
 __version__ = "1.0.0"
 
-# Цвета — десятичный int (0xRRGGBB). Холст также принимает строковые токены
-# палитры ("yellow4", "gray3"), но int надёжнее.
+# Цвета — десятичный int (0xRRGGBB) либо строковый токен палитры Холста
+# (см. ниже). Токен точнее попадает в фирменную палитру приложения,
+# int — единственный способ задать произвольный цвет.
 YELLOW = 0xFFF9B1
 GREEN = 0xD5F692
 BLUE = 0xA6CCF5
@@ -94,6 +95,11 @@ SCALE_FLOOR = 4.0               # пол читаемости    → 56  (2.1%)
 
 # Метрика Inter: ширины глифов в em, снятые с Inter-Regular / Inter-SemiBold.
 # Нужна, чтобы предсказать перенос строк и посчитать bounds.
+#
+# Таблица inter_widths.json и модель геометрии текста (кегль 14, строка 21,
+# bounds.width = (width + 0.5) * textScale) взяты из проекта holst-board
+# Дмитрия Соловьёва — https://github.com/soloveev/holst-board, CC BY-NC-SA 4.0.
+# Он выверил их по PDF-экспорту доски, где пункт PDF равен единице доски.
 _WIDTHS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "inter_widths.json")
 try:
