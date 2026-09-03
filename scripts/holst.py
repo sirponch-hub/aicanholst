@@ -8,12 +8,17 @@ Copyright (c) 2026 Mikhail Podurets. Лицензия CC BY-NC-SA 4.0 — см. 
 
 Быстрый старт:
 
-    from holst import Board, YELLOW, fit_scale
+    from holst import Board, YELLOW
 
     b = Board("Моя доска")
-    f = b.slide(0, 0, "Кадр 16:9")
-    b.sticker(400, 800, "Привет", color=YELLOW, scale=3, parent=f)
+    s = b.page("Цели и задачи")          # кадр 16:9 с вертикальным курсором
+    s.title("Цели и задачи")
+    s.body("**Цель:** договориться, что делаем дальше")
+    s.sticker_grid([""] * 12, cols=6, color=YELLOW)
     b.save("board.holst")
+
+Координатный API рядом: b.slide(x, y, label) даёт голый фрейм, дальше всё
+через явные координаты и parent=.
 
 Открывается в Холсте через «восстановить доску из файла».
 """
@@ -27,7 +32,7 @@ import time
 import uuid
 import zipfile
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # Цвета — десятичный int (0xRRGGBB) либо строковый токен палитры Холста
 # (см. ниже). Токен точнее попадает в фирменную палитру приложения,
@@ -498,7 +503,6 @@ class Board:
             "strokeColor": _color(stroke, stroke_opacity),
             "strokeStyle": stroke_style,
             "strokeWidth": stroke_width,
-            "fontFamily": font,
             "shapeType": shape_type,
             "width": float(width),
             "height": float(height),
@@ -509,6 +513,8 @@ class Board:
             "fixedSize": True,
             "jsonState": _rich(text, bold=bold),
         })
+        if font:
+            o["fontFamily"] = font
         if link:
             o["linkTo"] = link
         return self._add(o)

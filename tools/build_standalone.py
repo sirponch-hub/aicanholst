@@ -90,9 +90,27 @@ def strip_frontmatter(text):
 
 
 def demote(text, levels=1):
-    """Опускает уровень заголовков, чтобы вклеенный раздел не спорил с общим."""
-    return re.sub(r"^(#{1,5}) ", lambda m: "#" * (len(m.group(1)) + levels) + " ",
-                  text, flags=re.M)
+    """Опускает уровень заголовков вклеенного раздела.
+
+    Блоки кода пропускаются: там `#` — комментарий, а не заголовок.
+    Первый H1 файла удаляется — он становится заголовком раздела.
+    """
+    out, in_code, seen_h1 = [], False, False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_code = not in_code
+            out.append(line)
+            continue
+        m = re.match(r"^(#{1,5}) (.*)$", line)
+        if m and not in_code:
+            level, title = len(m.group(1)), m.group(2)
+            if level == 1 and not seen_h1:
+                seen_h1 = True
+                continue                       # заголовок задаёт сборщик
+            out.append("#" * (level + levels - 1) + " " + title)
+            continue
+        out.append(line)
+    return "\n".join(out).strip()
 
 
 def library_source():
@@ -165,7 +183,9 @@ def main():
         "",
         "# Правка чужой доски",
         "",
-        demote(strip_frontmatter(read("references", "editing.md"))),
+        # В автономной версии валидатор пишется рядом, а не лежит в scripts/.
+        demote(strip_frontmatter(read("references", "editing.md")))
+        .replace("scripts/validate.py", "validate.py"),
         "",
         "---",
         "",
