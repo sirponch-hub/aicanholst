@@ -32,13 +32,15 @@ license: CC-BY-NC-SA-4.0
 | Файл | Когда читать |
 |---|---|
 | `references/layout.md` | **Всегда перед вёрсткой** — правила кадров, кегля, автоподгонки, вставки картинок |
-| `references/format.md` | Когда нужен объект, не покрытый библиотекой (таблицы, `cropTransform`), или разбор чужой выгрузки |
+| `references/format.md` | Полная спецификация: 21 тип объектов, 63 формы, геометрия текста, таблицы, комментарии |
 | `references/editing.md` | Когда правишь присланную пользователем доску, а не собираешь новую |
 | `scripts/holst.py` | Библиотека сборки. Копировать в рабочую папку, не переписывать |
 | `scripts/inter_widths.json` | Метрика Inter — по ней считается перенос строк. Нужна рядом с `holst.py` |
 | `scripts/validate.py` | Проверка готового файла: схема + вместимость текста |
 | `scripts/preview.py` | Рендер кадров в PNG, чтобы посмотреть композицию глазами |
 | `examples/retro.py` | Рабочий пример: ретроспектива на три команды |
+| `examples/elements.py` | Стенд всех типов объектов — для проверки обратным импортом |
+| `tools/audit.py` | Сверка библиотеки с эталонной выгрузкой из Холста |
 
 ## Минимальный пример
 
@@ -85,8 +87,14 @@ b.save("board.holst")
 - **Курсор кадра (`Slide`):** `title`, `body`, `bullets(ordered=)`, `caption`,
   `gap(dy)`, `columns(n)`, `sticker_grid`, `empty_grid`, `image_fit`.
   Свойства: `left`, `bottom`, `content_w`, `free_h`, `cursor`.
-- **Содержимое:** `sticker`, `text`, `shape` (`square`/`ellipse`/`basic-star`),
-  `image`, `image_fit`, `flip_card`, `file` (PDF), `link`, `stamp`, `drawing`, `group`.
+- **Содержимое:** `sticker`, `sticker_stack`, `text`, `shape` (63 формы, включая
+  наборы `flowchart-*` и `bpmn-*`, см. `SHAPES_BASIC`), `image`, `image_fit`,
+  `card` (документ с заголовками), `flip_card`, `file`, `link`, `code`,
+  `icon` (Phosphor), `stamp` (реакция, умеет прилипать к объекту через `on=`),
+  `drawing`, `group`.
+- **Работа с задачами:** `kanban(x, y, columns)` + `task_card(..., kanban=kb,
+  column=N)`, `table(x, y, rows)`, `mind_map_node`.
+- **Интерактив:** `dice`, `spinner` (колесо случайного выбора).
 - **Связи:** `arrow(x1, y1, x2, y2)`, `arrow_between(a, b)` — с привязкой к объектам.
 - **Разметка в тексте:** `**жирный**`, `*курсив*`, `{red10|цветной}`, `\n` — новый
   абзац. Отключается через `markdown=False`.
@@ -97,7 +105,8 @@ b.save("board.holst")
 - **Ссылки:** `shape(link=...)`, `text(link=...)`, `image(link_to=...)` — поле `linkTo`.
 - **Чтение:** `load(path)` → data.json, `object_text(obj)` → плоский текст объекта.
 - **Цвета:** `YELLOW GREEN BLUE PINK ORANGE PURPLE RED GRAY WHITE BLACK DARK_GRAY`,
-  токены палитры `WHITE3 GRAY3 GRAY12 PINK10 RED10 VIOLET10`, либо int `0xRRGGBB`.
+  токены палитры `WHITE1 WHITE3 WHITE6 GRAY3 GRAY7 GRAY8 GRAY10 GRAY12 YELLOW4
+  PINK10 RED10 VIOLET10`, либо int `0xRRGGBB`.
 
 **Шрифт не задавай.** Холст набирает доску своим Inter; явный `font=` даст блок
 другой гарнитурой, чем вся остальная доска.
@@ -137,13 +146,15 @@ python scripts/preview.py board.holst preview/ 0 3 7
 
 - Формат не документирован официально и может измениться — при поломке сверься
   со свежей выгрузкой из Холста.
-- Вложенный PDF (`file`) описан, но обратным импортом не проверен.
+- Не покрыты: объединённые ячейки таблиц (`merge-R-C`), встраиваемые ссылки
+  с `displayType: 2` (карты, видео), аудио и видео внутри `file`.
+- `image_fit` требует Pillow, `preview.py` — cairosvg. Остальное — только stdlib.
 - Проект неофициальный, не связан с ООО «Холст». Скилл работает только с файлами
   выгрузки; к самому сервису и его API он не обращается.
+
+Все 21 тип объектов сверены с эталонной выгрузкой доски, на которую вручную
+вынесены все элементы Холста (`tools/audit.py`).
 
 Геометрия текста и метрика Inter взяты из проекта
 [holst-board](https://github.com/soloveev/holst-board) Дмитрия Соловьёва
 (CC BY-NC-SA 4.0) — см. `NOTICE.md`.
-- Таблицы (`table` / `table-cell`) библиотекой не покрыты: собирать вручную
-  по образцу из существующей выгрузки, см. `references/format.md`.
-- `image_fit` требует Pillow, `preview.py` — cairosvg. Остальное — только stdlib.

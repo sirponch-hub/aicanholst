@@ -293,6 +293,120 @@ class TestSlideCursor(unittest.TestCase):
         self.assertEqual(len(stickers), 12)
 
 
+class TestReferenceTypes(unittest.TestCase):
+    """Типы, сверенные с эталонной выгрузкой input/elements.holst."""
+
+    def test_stamp_is_reaction_stamp(self):
+        """Штамп — это reaction-stamp со stampKey, а не stamp с data."""
+        b = Board()
+        s = b.stamp(0, 0, "heart")
+        self.assertEqual(s["type"], "reaction-stamp")
+        self.assertEqual(s["stampKey"], "heart")
+        self.assertNotIn("data", s)
+        self.assertEqual(s["bounds"]["width"], 60)
+
+    def test_stamp_sticks_to_object(self):
+        b = Board()
+        target = b.sticker(0, 0, "x")
+        s = b.stamp(10, 10, "like", on=target, at=(0.25, 0.75))
+        self.assertEqual(s["stickyPosition"]["parentId"], target["id"])
+        self.assertEqual(s["stickyPosition"]["x"], 0.25)
+        self.assertEqual(s["stickyPosition"]["constraints"],
+                         {"x": "normalized", "y": "normalized"})
+
+    def test_card_parses_headings(self):
+        b = Board()
+        c = b.card(0, 0, "# Раз\nтекст\n## Два\n### Три")
+        kinds = [n["children"][0]["type"]
+                 for n in json.loads(c["jsonState"]["children"])]
+        self.assertEqual(kinds, ["heading-one", "paragraph",
+                                 "heading-two", "heading-three"])
+
+    def test_task_card_joins_kanban_column(self):
+        b = Board()
+        kb = b.kanban(0, 0, ["Нужно", "В работе", "Готово"])
+        t = b.task_card(0, 0, "задача", kanban=kb, column=1)
+        self.assertEqual(t["parentId"], kb["id"])
+        self.assertEqual(t["columnId"], kb["columns"][1]["id"])
+        self.assertEqual(t["swimlaneId"], kb["swimlanes"][0]["id"])
+        self.assertEqual(t["width"], 338)
+
+    def test_free_task_card_has_null_column(self):
+        b = Board()
+        t = b.task_card(0, 0, "задача")
+        self.assertIsNone(t["columnId"])
+        self.assertIsNone(t["swimlaneId"])
+        self.assertEqual(t["width"], 320)
+
+    def test_task_card_index_grows(self):
+        b = Board()
+        idx = [b.task_card(0, 0, str(i))["index"] for i in range(3)]
+        self.assertEqual(idx, sorted(idx))
+        self.assertEqual(len(set(idx)), 3)
+
+    def test_table_builds_cells_with_fractional_index(self):
+        b = Board()
+        t = b.table(0, 0, [["a", "b"], ["c", "d"]], col_w=240, row_h=60)
+        cells = [o for o in b.objects if o["type"] == "table-cell"]
+        self.assertEqual(len(cells), 4)
+        self.assertEqual(t["bounds"]["width"], 480)
+        self.assertEqual(t["bounds"]["height"], 120)
+        self.assertEqual(t["column-1"]["index"], holst.TABLE_INDEX)
+        self.assertEqual(t["column-2"]["index"], holst.TABLE_INDEX * 2)
+        self.assertTrue(all(c["parentId"] == t["id"] for c in cells))
+        self.assertEqual([c["position"] for c in cells], [{"x": 0, "y": 0}] * 4)
+        self.assertEqual(object_text(cells[3]), "d")
+
+    def test_table_cell_bounds_are_absolute(self):
+        b = Board()
+        b.table(1000, 2000, [["a", "b"]], col_w=240, row_h=60)
+        cells = [o for o in b.objects if o["type"] == "table-cell"]
+        self.assertEqual(cells[0]["bounds"]["x"], 1000)
+        self.assertEqual(cells[1]["bounds"]["x"], 1240)
+
+    def test_scaled_types_match_reference_sizes(self):
+        """Кость и колесо: логический размер * scale = размер из эталона."""
+        b = Board()
+        self.assertEqual(b.dice(0, 0, scale=0.5)["bounds"]["width"], 120)
+        self.assertEqual(b.spinner(0, 0, ["a"], scale=1.5)["bounds"]["width"], 540)
+        self.assertEqual(b.icon(0, 0, "check")["bounds"]["width"], 48)
+        self.assertEqual(b.sticker_stack(0, 0)["bounds"]["width"], 232)
+
+    def test_mind_map_node_widens_for_text(self):
+        b = Board()
+        short = b.mind_map_node(0, 0, "1")
+        long = b.mind_map_node(0, 0, "длинная подпись узла")
+        self.assertEqual(short["bounds"]["width"], 70)
+        self.assertGreater(long["bounds"]["width"], 70)
+
+    def test_code_height_grows_by_lines(self):
+        b = Board()
+        one = b.code(0, 0, "print(1)")
+        three = b.code(0, 0, "a\nb\nc")
+        self.assertEqual(three["bounds"]["height"], one["bounds"]["height"] * 3)
+        self.assertEqual(three["clonedTextValue"], "a\nb\nc")
+
+    def test_file_carries_mime_and_page_size(self):
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "doc.pdf")
+        with open(path, "wb") as fh:
+            fh.write(b"%PDF-1.4\n")
+        b = Board()
+        f = b.file(0, 0, path, pages=101)
+        self.assertEqual(f["fileType"], "application/pdf")
+        self.assertEqual(f["pagesInfo"], {"count": 101, "valid": True})
+        self.assertIn("pageSize", f)
+        self.assertNotIn("pinnedPage", f)
+
+    def test_spinner_items_get_ids(self):
+        b = Board()
+        w = b.spinner(0, 0, ["Вариант 1", "Вариант 2"])
+        self.assertEqual([i["label"] for i in w["items"]],
+                         ["Вариант 1", "Вариант 2"])
+        self.assertEqual(len({i["id"] for i in w["items"]}), 2)
+
+
 class TestLinks(unittest.TestCase):
     def test_link_on_shape_and_text(self):
         b = Board()

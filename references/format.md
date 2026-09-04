@@ -49,9 +49,10 @@ data.json
 `{"color": <int|токен>, "opacity": 1}`:
 
 - **int** `0xRRGGBB` — произвольный цвет, единственный способ задать свой.
-- **строковый токен палитры Холста** — шкала в духе Radix. Точный список
-  неизвестен; проверены `white3`, `white6`, `gray3`, `gray12`, `pink10`,
-  `red10`, `violet10`. Токен точнее попадает в фирменную палитру приложения.
+- **строковый токен палитры Холста** — шкала в духе Radix: имя цвета плюс номер
+  ступени. Встречались `white1`, `white3`, `white6`, `gray3`, `gray7`, `gray8`,
+  `gray10`, `gray12`, `yellow4`, `pink10`, `red10`, `violet10`. Полный список
+  неизвестен, но схема очевидна. Токен точнее попадает в фирменную палитру.
 
 В библиотеке токены доступны как `WHITE3`, `GRAY12`, `RED10` и так далее.
 
@@ -62,17 +63,58 @@ data.json
 | `frame` | `labelText`, `fillColor`, `isContentHidden` |
 | `sticker` | `textScale`, `fillColor`, `jsonState`, `reactions: []` |
 | `simple-text` | `textScale`, `fixedWidth`, `textColor`; `fontFamily` выставлять не нужно |
-| `shape` | `shapeType`: `square` / `ellipse` / `basic-star`; `fontSize` — **абсолютный** кегль в единицах доски; `strokeWidth` тоже в единицах доски, на кадре 4800 рабочие значения 4–12 |
+| `shape` | `shapeType` — см. ниже; `fontSize` — **абсолютный** кегль в единицах доски (если поле не задать, Холст подберёт кегль сам); `strokeWidth` тоже в единицах доски, на кадре 4800 рабочие значения 4–12 |
 | `arrow` | `start`/`end` с `objectId` + `relativePoint` (0..1) для привязки к объекту; `arrowType`: `straight`/`curved`/`elbow`; наконечники `none`/`triangle-filled`/`arc`/`miro` |
 | `image` | `name` = имя файла в архиве (не обязано совпадать с `id`, на один файл могут ссылаться несколько объектов); `naturalWidth`/`naturalHeight` — пиксельный размер исходника, `imageType`, `originalName`; опц. `cropTransform`, `linkTo` |
 | `flip-card` | логический размер `220×320`, `bounds` = логический × `scale`; `side`: `front`/`back`; `frontDocumentId`/`backDocumentId` — просто uuid; текст в `frontJsonState`/`backJsonState` |
 | `file` | вложенный PDF: `fileName`, `pagesInfo`, `pinnedPage`, `displayType: "content"` |
 | `link` | `link`, `displayType: 1`, `linkInfo` (title, description, imageKey, faviconKey). Логическая ширина **300**, высота зависит от описания: 111 в одну строку, +22,5 за каждую следующую (≈46 знаков в строке). Промахнётесь — Холст переверстает сам, разъедется только рамка выделения |
-| `stamp` | `data: {"type": "textStamp", "text": "👍"}` |
+| `reaction-stamp` | `stampKey`: `like`/`dislike`/`heart`/`star`/`check`/`cross`/`+1`/`figma-question`; логический размер 60, `rotation`. Необязательный `stickyPosition` — `{parentId, constraints: {x,y: "normalized"}, x, y}` — прилепляет штамп к объекту в долях его габаритов |
+| `card` | документ-карточка: `colorToken`, `fixedSize: false`, `jsonState` с заголовками `heading-one`/`two`/`three` |
+| `task-card` | `titleJsonState`, `index` (порядок), `assigneeIds`, `scale`; внутри канбана — `parentId` доски, `columnId`, `swimlaneId` и ширина 338 вместо 320 |
+| `kanban` | `columns: [{title, index, id}]`, `swimlanes: [{title, index, id}]`. Карточки — отдельные `task-card`, связь по id колонки |
+| `mind-map-node` | `nodeColor` (обычно с `opacity` 0.1), `nodeType`, `strokeStyle`, `jsonState`. Узлы соединяются обычными стрелками |
+| `code` | `clonedTextValue` — просто строка кода, `theme`: `light`/`dark`, `scale` |
+| `dice` | `faces`, `value`, `spinTime`, `rotation`; логический размер 240 |
+| `spinner-wheel` | `items: [{id, label}]`, `mode`, `selectedItemId`, `excludedItemIds`, `wheelRotation`; логический размер 360 |
+| `sticker-stack` | пачка стикеров: `width`/`height` 192, но `bounds` 232×288 |
+| `phosphor-icon` | `iconName`, `weight`: `thin`/`light`/`regular`/`bold`/`fill`/`duotone`, `fillColor` |
 | `drawing` | `path` — плоская строка `"x1,y1,x2,y2,…"`, `algorithm`: `lazy` (сглаживает) / `simple` |
 | `group` | только `bounds` + `ignoreZIndex: true`; дети ссылаются через `parentId` |
 | `phosphor-icon` | иконка из встроенного набора; библиотекой не создаётся, но переживает точечную правку файла |
-| `table` / `table-cell` | таблица хранит `row-N` / `column-N` / `merge-R-C`; ячейки — отдельные объекты с `rowId`/`columnId`. Библиотекой не покрыто — собирать вручную по образцу из существующей выгрузки |
+| `table` / `table-cell` | см. ниже |
+| `file` | `fileName` (имя в архиве), `displayFileName`, `fileSize`, `fileType` — настоящий MIME, `pagesInfo`, `pageSize` (размер страницы исходника), `displayType: "content"` |
+
+## Таблица
+
+Таблица — это объект `table` плюс отдельные объекты `table-cell` с `parentId`
+таблицы. Порядок строк и колонок задаётся «дробным индексом»: шаг `2**40`
+(1099511627776), то есть у N-й колонки `index = N * 2**40`. Такая нумерация
+позволяет вставить строку между двумя существующими, не перенумеровывая всё.
+
+```json
+{"type": "table", "strokeColor": {…}, "fillColor": {"color": null, "opacity": 1},
+ "fillColorIndex": 5,
+ "column-1": {"index": 1099511627776, "width": 240},
+ "column-2": {"index": 2199023255552, "width": 240},
+ "row-1": {"index": 1099511627776, "height": 60, "minHeight": 60}}
+```
+
+У колонки и строки могут быть `horizontalAlign` / `verticalAlign` (плюс
+парные `*Index`) и `textRotation` — так делается «шапка» с вертикальным текстом.
+
+Ячейка: `position` всегда `{0, 0}`, а `bounds` — абсолютные координаты на доске.
+
+```json
+{"type": "table-cell", "parentId": "<id таблицы>", "documentId": "<uuid>",
+ "rowId": 1, "columnId": 1, "isFake": false, "countRow": 1, "countColumn": 1,
+ "rows": [{"index": 1099511627776, "height": 60, "minHeight": 60, "rowId": 1}],
+ "columns": [{"index": 1099511627776, "width": 240, "columnId": 1}],
+ "tableStyles": {"strokeColor": {…}, "fillColor": {…}, "fillColorIndex": 1},
+ "fillColor": {…}, "jsonState": {…}}
+```
+
+Объединённые ячейки хранятся как `merge-R-C` — библиотекой не покрыто.
 
 Ссылку на объект вешает поле `linkTo` со строкой URL. Документировано для `image`;
 на фигурах и тексте работает так же (`shape(link=...)`, `text(link=...)`), но
@@ -157,6 +199,46 @@ for o in d["objects"]:
     if o.get("jsonState"):
         nodes = json.loads(o["jsonState"]["children"])
 ```
+
+## Комментарии
+
+Лежат отдельным массивом `comments` на верхнем уровне, а не среди объектов.
+`target.type` различает привязку: `1` — к объекту (`targetId` плюс `point`
+в долях его габаритов, 0…1), `2` — к точке на доске (`point` в абсолютных
+координатах, без `targetId`).
+
+```json
+{"target": {"type": 2, "point": {"x": 1767.3, "y": 6142.6}},
+ "content": [ …те же wrapper/paragraph, что в jsonState… ],
+ "resolved": false, "root": true, "mentions": [],
+ "authorId": "<uuid>", "createdAt": 1788511962980.5, "id": "bxVxp"}
+```
+
+Генератор всегда пишет `comments: []`.
+
+## Формы `shape`
+
+Их 63. Базовые (константа `SHAPES_BASIC` в библиотеке):
+
+`square`, `roundedRectangle`, `ellipse`, `triangle`, `invertedTriangle`,
+`diamond`, `rightParallelogram`, `leftParallelogram`, `basic-star`,
+`basic-pentagon`, `basic-hexagon`, `basic-octagon`, `basic-trapezoid`,
+`basic-cross`, `basic-cloud`, `basic-speech-bubble`, `basic-arrow-right`,
+`basic-arrow-left`, `basic-arrow-left-right`.
+
+Блок-схемы: `flowchart-process`, `-decision`, `-terminator`,
+`-predefined-process`, `-document`, `-multiple-documents`, `-manual-input`,
+`-preparation`, `-data`, `-database`, `-direct-access-storage`,
+`-internal-storage`, `-manual-operation`, `-delay`, `-stored-data`, `-merge`,
+`-connector`, `-or`, `-summing-junction`, `-display`, `-off-page-connector`,
+`-left-curly-brace-annotation`, `-right-curly-brace-annotation`, `-comment`,
+`-note`.
+
+BPMN: `bpmn-task`, `-transaction`, `-event-subprocess`, `-call-activity`,
+`-event-start`, `-event-start-non-interrupting`, `-event-intermediate`,
+`-event-intermediate-non-interrupting`, `-event-end`, `-conversation`,
+`-call-conversation`, `-gateway`, `-data-object`, `-data-store`, `-empty-pool`,
+`-group`, `-annotation`, `-message`.
 
 Правка существующей выгрузки, снятие чужого шаблона и разбор гистограмм стилей —
 в [`editing.md`](editing.md).

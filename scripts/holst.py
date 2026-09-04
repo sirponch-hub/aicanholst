@@ -51,17 +51,51 @@ DARK_GRAY = 0x808080
 
 # Строковые токены палитры Холста. Проверены только эти; для произвольного
 # цвета используй int 0xRRGGBB.
-WHITE3, WHITE6 = "white3", "white6"
-GRAY3, GRAY12 = "gray3", "gray12"
+WHITE1, WHITE3, WHITE6 = "white1", "white3", "white6"
+GRAY3, GRAY7, GRAY8, GRAY10, GRAY12 = "gray3", "gray7", "gray8", "gray10", "gray12"
+YELLOW4 = "yellow4"
 PINK10, RED10, VIOLET10 = "pink10", "red10", "violet10"
 
 # Логические размеры масштабируемых объектов: итоговый = логический * scale.
 STICKER, STICKER_WIDE = 192.0, 384.0
 CARD_W, CARD_H = 220.0, 320.0       # флип-карта
+CARD_DOC_W, CARD_DOC_H = 320.0, 642.0   # документ-карточка
+TASK_W, TASK_H = 320.0, 56.0        # карточка задачи (отдельно на доске)
+KANBAN_TASK_W = 338.0               # она же внутри канбана
+KANBAN_COL_W = 374.0                # колонка канбана
+STAMP = 60.0                        # штамп-реакция
+ICON = 48.0                         # иконка
+DICE = 240.0                        # кость: логический размер
+SPINNER = 360.0                     # колесо: логический размер
+TABLE_INDEX = 1099511627776         # 2**40 — шаг «дробного индекса» строк и колонок
 LINK_W = 300.0                      # карточка ссылки
 LINK_H_BASE = 111.0                 # высота при описании в одну строку
 LINK_LINE = 22.5                    # прибавка за каждую следующую строку
 LINK_CPL = 46                       # знаков в строке описания
+
+# Ключи штампов-реакций, встречающиеся в выгрузке.
+STAMP_KEYS = ("like", "dislike", "heart", "star", "check", "cross", "+1",
+              "figma-question")
+
+MIME = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg", ".gif": "image/gif", ".svg": "image/svg+xml",
+        ".mp4": "video/mp4", ".mp3": "audio/mpeg",
+        ".doc": "application/msword", ".txt": "text/plain",
+        ".docx": "application/vnd.openxmlformats-officedocument."
+                 "wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument."
+                 "spreadsheetml.sheet",
+        ".pptx": "application/vnd.openxmlformats-officedocument."
+                 "presentationml.presentation"}
+
+# Формы shape. Кроме базовых есть наборы flowchart-* и bpmn-* — полный список
+# в references/format.md; Холст принимает любую строку из него.
+SHAPES_BASIC = ("square", "roundedRectangle", "ellipse", "triangle",
+                "invertedTriangle", "diamond", "rightParallelogram",
+                "leftParallelogram", "basic-star", "basic-pentagon",
+                "basic-hexagon", "basic-octagon", "basic-trapezoid",
+                "basic-cross", "basic-cloud", "basic-speech-bubble",
+                "basic-arrow-right", "basic-arrow-left", "basic-arrow-left-right")
 
 # Холст набирает доску своим шрифтом (Inter). Выставлять fontFamily нужно
 # только если вы сознательно хотите другую гарнитуру.
@@ -294,13 +328,18 @@ def _leaf(text, marks):
     return leaf
 
 
+HEADINGS = {"#": "heading-one", "##": "heading-two", "###": "heading-three"}
+
+
 def _rich(text, bold=False, italic=False, color=None, bullets=False,
-          block=None, markdown=True):
+          block=None, markdown=True, headings=False):
     """Строит jsonState. Абзацы делятся по \\n.
 
     block: paragraph | ul-list-item | ol-list-item | initial.
     Первому пункту нумерованного списка проставляется counter: 1, иначе
     нумерация продолжит предыдущий список в том же объекте.
+    headings=True разбирает «# », «## », «### » в начале абзаца как заголовки
+    (Холст поддерживает их в документах-карточках).
     """
     base = {}
     if bold:
@@ -315,8 +354,12 @@ def _rich(text, bold=False, italic=False, color=None, bullets=False,
 
     nodes, numbered = [], False
     for line in str(text).split("\n"):
-        runs = parse_inline(line) if markdown else [(line, {})]
         node_type = block if line.strip() else "initial"
+        if headings and line.strip():
+            head, _, rest = line.partition(" ")
+            if head in HEADINGS and rest:
+                node_type, line = HEADINGS[head], rest
+        runs = parse_inline(line) if markdown else [(line, {})]
         node = {
             "type": node_type,
             "key": _uid(),
@@ -355,6 +398,7 @@ class Board:
         self._row = 0
         self._row_y = 0.0
         self._row_h = 0.0
+        self._task_i = 0
 
     def _next_z(self) -> float:
         self._z += 1000.0
@@ -580,9 +624,10 @@ class Board:
         })
         return self._add(o)
 
-    def file(self, x, y, path, display_name=None, width=2400, height=1350,
-             pages=1, scale=4.0, parent=None):
-        """PDF/документ на доске (displayType='content' — превью страницы)."""
+    def file(self, x, y, path, display_name=None, width=600, height=750,
+             pages=1, page_size=(400, 500), parent=None):
+        """Документ на доске. displayType='content' — превью страницы.
+        page_size — размер страницы исходника, Холст масштабирует превью по нему."""
         if not os.path.isfile(path):
             raise FileNotFoundError("Файла нет на диске: %s" % path)
         ext = os.path.splitext(path)[1].lower()
@@ -593,11 +638,9 @@ class Board:
             "displayFileName": display_name or os.path.basename(path),
             "fileName": asset,
             "fileSize": os.path.getsize(path),
-            "fileType": "",
-            "scale": scale,
-            "rotation": 0,
-            "pinnedPage": 1,
+            "fileType": MIME.get(ext, "application/octet-stream"),
             "pagesInfo": {"count": pages, "valid": True},
+            "pageSize": {"width": page_size[0], "height": page_size[1]},
             "displayType": "content",
         })
         return self._add(o)
@@ -621,11 +664,199 @@ class Board:
         })
         return self._add(o)
 
-    def stamp(self, x, y, emoji="👍", size=172, parent=None):
-        o = self._base("stamp", x, y, size, size, parent)
+    def stamp(self, x, y, key="like", size=STAMP, rotation=0.0, parent=None,
+              on=None, at=(0.5, 0.5)):
+        """Штамп-реакция. key — из STAMP_KEYS; логический размер 60.
+
+        on — объект, к которому штамп прилипает: тогда он едет вместе с ним,
+        а at задаёт точку крепления в долях его ширины и высоты (0…1).
+        """
+        o = self._base("reaction-stamp", x, y, size, size, parent)
         o.update({"width": float(size), "height": float(size),
-                  "data": {"type": "textStamp", "text": emoji}, "rotation": 0})
+                  "stampKey": key, "rotation": rotation})
+        if on is not None:
+            o["stickyPosition"] = {
+                "parentId": _pid(on),
+                "constraints": {"x": "normalized", "y": "normalized"},
+                "x": at[0], "y": at[1],
+            }
         return self._add(o)
+
+    def icon(self, x, y, name, size=ICON, color=GRAY12, weight="duotone",
+             parent=None):
+        """Иконка из встроенного набора Phosphor.
+        weight: thin | light | regular | bold | fill | duotone."""
+        o = self._base("phosphor-icon", x, y, size, size, parent)
+        o.update({"width": float(size), "height": float(size),
+                  "iconName": name, "weight": weight, "fillColor": _color(color)})
+        return self._add(o)
+
+    def sticker_stack(self, x, y, parent=None):
+        """Стопка стикеров: пустая пачка, из которой участники берут листки."""
+        o = self._base("sticker-stack", x, y, 232, 288, parent)
+        o.update({"width": STICKER, "height": STICKER})
+        return self._add(o)
+
+    def card(self, x, y, text="", width=CARD_DOC_W, height=CARD_DOC_H,
+             color=WHITE1, parent=None, markdown=True):
+        """Документ-карточка: длинный форматированный текст.
+        Поддерживает заголовки — «# Заголовок», «## », «### » в начале абзаца."""
+        o = self._base("card", x, y, width, height, parent)
+        o.update({
+            "width": float(width),
+            "height": float(height),
+            "fixedSize": False,
+            "colorToken": color,
+            "jsonState": _rich(text, markdown=markdown, headings=True),
+        })
+        return self._add(o)
+
+    def task_card(self, x, y, title="", width=None, height=TASK_H, scale=1.0,
+                  index=None, assignees=None, parent=None, kanban=None,
+                  column=0, swimlane=0):
+        """Карточка задачи.
+
+        Отдельно на доске — просто карточка. С kanban=<доска> она встаёт в
+        колонку: column и swimlane — номера или id. index задаёт порядок
+        внутри колонки, по умолчанию растёт от порядка создания.
+        """
+        col_id = lane_id = None
+        if kanban is not None:
+            cols, lanes = kanban["columns"], kanban["swimlanes"]
+            col_id = column if isinstance(column, str) else cols[column]["id"]
+            lane_id = swimlane if isinstance(swimlane, str) else lanes[swimlane]["id"]
+            parent = parent if parent is not None else kanban
+        if width is None:
+            width = KANBAN_TASK_W if kanban is not None else TASK_W
+
+        o = self._base("task-card", x, y, width, height, parent)
+        o.update({
+            "width": float(width),
+            "scale": float(scale),
+            "index": float(index if index is not None else self._next_task_index()),
+            "titleJsonState": _rich(title),
+            "assigneeIds": list(assignees or []),
+            "columnId": col_id,
+            "swimlaneId": lane_id,
+        })
+        return self._add(o)
+
+    def _next_task_index(self):
+        self._task_i += 1
+        return 1000000000.0 * self._task_i
+
+    def kanban(self, x, y, columns, swimlanes=("Без названия",), width=None,
+               height=181.25, parent=None):
+        """Канбан-доска: колонки и дорожки. Карточки кладутся отдельно
+        через task_card() — Холст связывает их по координатам."""
+        cols = [{"title": t, "index": i * 10000, "id": _uid()}
+                for i, t in enumerate(columns)]
+        lanes = [{"title": t, "index": i, "id": _uid()}
+                 for i, t in enumerate(swimlanes)]
+        width = width if width is not None else len(cols) * KANBAN_COL_W
+        o = self._base("kanban", x, y, width, height, parent)
+        o.update({"columns": cols, "swimlanes": lanes})
+        return self._add(o)
+
+    def mind_map_node(self, x, y, text="", width=None, height=65,
+                      color=VIOLET10, opacity=0.1, node_type=1,
+                      stroke_style="solid", parent=None):
+        """Узел mind-map. Соединяются узлы обычными стрелками.
+        Ширина по умолчанию — под текст, но не меньше 70."""
+        if width is None:
+            width = max(70.0, text_width(plain_text(text), FS_INTERNAL) + 40)
+        o = self._base("mind-map-node", x, y, width, height, parent)
+        o.update({
+            "nodeType": node_type,
+            "nodeColor": _color(color, opacity),
+            "strokeStyle": stroke_style,
+            "jsonState": _rich(text),
+        })
+        return self._add(o)
+
+    def code(self, x, y, text="", width=500, height=None, scale=1.0,
+             theme="light", parent=None):
+        """Блок кода. theme: light | dark."""
+        if height is None:
+            height = max(31.0, len(str(text).split("\n")) * 31.0)
+        o = self._base("code", x, y, width, height, parent)
+        o.update({"width": float(width), "scale": float(scale), "theme": theme,
+                  "clonedTextValue": str(text)})
+        return self._add(o)
+
+    def dice(self, x, y, faces=6, value=1, scale=0.5, rotation=0, parent=None):
+        """Игральная кость. faces: 4 | 6 | 8 | 10 | 12 | 20.
+        Логический размер 240, итоговый = 240 * scale."""
+        size = DICE * scale
+        o = self._base("dice", x, y, size, size, parent)
+        o.update({"scale": float(scale), "faces": faces, "value": value,
+                  "rotation": rotation, "spinTime": 0})
+        return self._add(o)
+
+    def spinner(self, x, y, items, scale=1.5, mode="custom", parent=None):
+        """Колесо случайного выбора. Логический размер 360."""
+        size = SPINNER * scale
+        o = self._base("spinner-wheel", x, y, size, size, parent)
+        o.update({
+            "scale": float(scale),
+            "mode": mode,
+            "items": [{"id": _uid(), "label": t} for t in items],
+            "userIds": [],
+            "removeItemOnceChosen": False,
+            "excludedItemIds": [],
+            "selectedItemId": None,
+            "wheelRotation": 0,
+            "spinTime": 0,
+        })
+        return self._add(o)
+
+    def table(self, x, y, rows, col_w=240.0, row_h=60.0, fill=WHITE6,
+              stroke=GRAY7, parent=None):
+        """Таблица. rows — список списков с текстом ячеек.
+
+        Возвращает объект таблицы; ячейки добавляются в доску отдельными
+        объектами с parentId таблицы, как этого ждёт Холст.
+        """
+        n_rows, n_cols = len(rows), max(len(r) for r in rows)
+        widths = [col_w] * n_cols if not isinstance(col_w, (list, tuple)) else list(col_w)
+        heights = [row_h] * n_rows if not isinstance(row_h, (list, tuple)) else list(row_h)
+
+        t = self._base("table", x, y, sum(widths), sum(heights), parent)
+        t.update({"strokeColor": _color(stroke),
+                  "fillColor": {"color": None, "opacity": 1},
+                  "fillColorIndex": 5})
+        for c in range(n_cols):
+            t["column-%d" % (c + 1)] = {"index": TABLE_INDEX * (c + 1),
+                                        "width": widths[c]}
+        for r in range(n_rows):
+            t["row-%d" % (r + 1)] = {"index": TABLE_INDEX * (r + 1),
+                                     "height": heights[r], "minHeight": heights[r]}
+        self._add(t)
+
+        styles = {"strokeColor": _color(stroke), "fillColor": _color(fill),
+                  "fillColorIndex": 1}
+        for r, row in enumerate(rows):
+            for c in range(n_cols):
+                cell = self._base("table-cell", x + sum(widths[:c]),
+                                  y + sum(heights[:r]), widths[c], heights[r], t)
+                cell["position"] = {"x": 0, "y": 0}      # у ячеек всегда 0,0
+                cell.update({
+                    "documentId": _uid(),
+                    "rowId": r + 1,
+                    "columnId": c + 1,
+                    "fillColor": _color(fill),
+                    "rows": [{"index": TABLE_INDEX * (r + 1), "height": heights[r],
+                              "minHeight": heights[r], "rowId": r + 1}],
+                    "columns": [{"index": TABLE_INDEX * (c + 1), "width": widths[c],
+                                 "columnId": c + 1}],
+                    "tableStyles": styles,
+                    "isFake": False,
+                    "countRow": 1,
+                    "countColumn": 1,
+                    "jsonState": _rich(row[c] if c < len(row) else ""),
+                })
+                self._add(cell)
+        return t
 
     def drawing(self, x, y, points, color=BLACK, stroke_width=12, parent=None):
         """points — [(dx, dy), …] относительно (x, y). Хранится плоской строкой."""
