@@ -530,7 +530,8 @@ class Board:
               text_color=BLACK, font_size=26, font=DEFAULT_FONT, halign="center",
               valign="center", rotation=0, parent=None, bold=False, autofit=True,
               grow=True, link=None):
-        """shape_type: square | ellipse | basic-star.
+        """Фигура. shape_type — любая из 63 форм: базовые (SHAPES_BASIC),
+        блок-схемные flowchart-* и bpmn-*, см. references/format.md.
         autofit ужимает кегль до пола, grow дорастит высоту, если и так не влезает.
         Обрезанного текста быть не должно."""
         fs = font_size

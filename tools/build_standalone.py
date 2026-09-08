@@ -69,12 +69,32 @@ FORMAT_BRIEF = """# Формат в двух словах
 (первому пункту нужен `counter: 1`, иначе нумерация продолжит предыдущий
 список). Свойства листа: `bold`, `italic`, `color`.
 
-Типы объектов, которые умеет библиотека: `frame`, `simple-text`, `sticker`,
-`shape` (`square`/`ellipse`/`basic-star`), `image`, `flip-card`, `link`,
-`stamp`, `drawing`, `group`, `arrow`, `file`. Не покрыты `table`/`table-cell` —
-их собирают вручную по образцу из существующей выгрузки. У `shape` `fontSize`
-и `strokeWidth` — абсолютные, в единицах доски: на кадре 4800 рабочая обводка
-4–12, двойка не видна.
+**Типы объектов.** Библиотека покрывает все 21, что встречаются в выгрузке:
+`frame`, `simple-text`, `sticker`, `sticker-stack`, `shape`, `image`, `card`,
+`flip-card`, `task-card`, `kanban`, `table` + `table-cell`, `mind-map-node`,
+`code`, `link`, `file`, `reaction-stamp`, `phosphor-icon`, `dice`,
+`spinner-wheel`, `drawing`, `group`, `arrow`.
+
+Что стоит помнить о каждом:
+
+- `shape` — 63 формы: 19 базовых (`square`, `ellipse`, `diamond`,
+  `basic-star`, `basic-cloud`, `basic-speech-bubble`…), 25 блок-схемных
+  (`flowchart-process`, `flowchart-decision`…) и 18 BPMN (`bpmn-task`,
+  `bpmn-gateway`…). `fontSize` и `strokeWidth` абсолютные, в единицах доски:
+  на кадре 4800 рабочая обводка 4–12, двойка не видна.
+- `reaction-stamp` — `stampKey`: `like`, `dislike`, `heart`, `star`, `check`,
+  `cross`, `+1`, `figma-question`. Поле `stickyPosition` прилепляет штамп
+  к объекту в долях его габаритов (`stamp(..., on=объект, at=(0.75, 0.75))`).
+- `card` — документ с заголовками: `# `, `## `, `### ` разбираются в
+  `heading-one/two/three`.
+- `kanban` хранит колонки и дорожки, а карточки лежат отдельными `task-card`
+  и связаны с колонкой через `columnId`, а не координатами.
+- `table` — сам объект плюс отдельные `table-cell` с `parentId` таблицы;
+  порядок строк и колонок задаётся «дробным индексом» с шагом 2⁴⁰.
+  Объединённые ячейки (`merge-R-C`) не покрыты.
+- `file` — `fileType` должен быть настоящим MIME, нужен `pageSize`.
+
+Полная спецификация с полями каждого типа — `references/format.md`.
 
 Полная спецификация со всеми полями — `references/format.md` в репозитории
 https://github.com/sirponch-hub/aicanholst"""
