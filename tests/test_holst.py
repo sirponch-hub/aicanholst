@@ -373,18 +373,32 @@ class TestReferenceTypes(unittest.TestCase):
         self.assertEqual(b.sticker_stack(0, 0)["bounds"]["width"], 232)
 
     def test_mind_map_node_widens_for_text(self):
+        """Ширина ≈ ширина текста + 64, не меньше 70,5 — по возврату из Холста
+        («1» → 70,5, «корень» → 112)."""
         b = Board()
-        short = b.mind_map_node(0, 0, "1")
-        long = b.mind_map_node(0, 0, "длинная подпись узла")
-        self.assertEqual(short["bounds"]["width"], 70)
-        self.assertGreater(long["bounds"]["width"], 70)
+        self.assertEqual(b.mind_map_node(0, 0, "1")["bounds"]["width"], 70.5)
+        self.assertAlmostEqual(b.mind_map_node(0, 0, "корень")["bounds"]["width"],
+                               112, delta=2)
 
     def test_code_height_grows_by_lines(self):
+        """Высота = строки × 21 + 30: Холст вернул 72 для двух строк,
+        в эталоне 93 для трёх."""
         b = Board()
-        one = b.code(0, 0, "print(1)")
-        three = b.code(0, 0, "a\nb\nc")
-        self.assertEqual(three["bounds"]["height"], one["bounds"]["height"] * 3)
-        self.assertEqual(three["clonedTextValue"], "a\nb\nc")
+        self.assertEqual(b.code(0, 0, "a\nb")["bounds"]["height"], 72)
+        self.assertEqual(b.code(0, 0, "a\nb\nc")["bounds"]["height"], 93)
+        self.assertEqual(b.code(0, 0, "a\nb\nc")["clonedTextValue"], "a\nb\nc")
+
+    def test_wrap_tolerance_matches_holst(self):
+        """Строка, превышающая ширину на 0,12%, у Холста помещается.
+        Без допуска мы насчитывали лишнюю строку."""
+        text = "shape: 19 базовых форм + flowchart- и bpmn-"
+        self.assertEqual(holst.text_lines(text, 165.0, holst.FS_INTERNAL), 2)
+
+    def test_drawing_bounds_pad_half_stroke(self):
+        """Обводка выступает на полтолщины с каждой стороны: 240 + 6 = 246."""
+        b = Board()
+        d = b.drawing(0, 0, [(0, 0), (120, 40), (240, 0)], stroke_width=6)
+        self.assertEqual(d["bounds"]["width"], 246)
 
     def test_file_carries_mime_and_page_size(self):
         import tempfile

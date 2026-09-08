@@ -32,7 +32,7 @@ import time
 import uuid
 import zipfile
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 # Цвета — десятичный int (0xRRGGBB) либо строковый токен палитры Холста
 # (см. ниже). Токен точнее попадает в фирменную палитру приложения,
@@ -71,7 +71,10 @@ TABLE_INDEX = 1099511627776         # 2**40 — шаг «дробного инд
 LINK_W = 300.0                      # карточка ссылки
 LINK_H_BASE = 111.0                 # высота при описании в одну строку
 LINK_LINE = 22.5                    # прибавка за каждую следующую строку
-LINK_CPL = 46                       # знаков в строке описания
+LINK_CPL = 30                       # знаков в строке описания карточки ссылки
+CODE_PAD = 30.0                     # поля блока кода сверх строк
+MINDMAP_PAD = 64.0                  # поля узла mind-map вокруг текста
+MINDMAP_MIN = 70.5                  # минимальная ширина узла
 
 # Ключи штампов-реакций, встречающиеся в выгрузке.
 STAMP_KEYS = ("like", "dislike", "heart", "star", "check", "cross", "+1",
@@ -163,18 +166,28 @@ def text_width(text, fs, bold=False):
     return ems(text, bold) * fs
 
 
+WRAP_TOLERANCE = 1.005          # допуск на округление метрики, см. ниже
+
+
 def text_lines(text, width, fs, bold=False):
     """Сколько строк займёт текст при данной ширине и кегле.
-    width и fs — в одних единицах (доски либо внутренних)."""
+    width и fs — в одних единицах (доски либо внутренних).
+
+    Допуск 0,5%: наши ширины глифов округлены до четырёх знаков, и строка,
+    которая у Холста влезает впритык, у нас может превысить ширину на доли
+    процента — тогда мы насчитаем лишнюю строку. Проверено на возврате из
+    Холста: строка шире расчётной на 0,12% помещалась.
+    """
     if width <= 0:
         return max(1, len(str(text).split("\n")))
+    avail = width * WRAP_TOLERANCE
     total = 0
     for para in str(text).split("\n"):
         words, cur, lines = para.split(" "), 0.0, 1
         for i, word in enumerate(words):
             adv = text_width(word, fs, bold)
             space = text_width(" ", fs, bold) if i else 0.0
-            if cur and cur + space + adv > width:
+            if cur and cur + space + adv > avail:
                 lines += 1
                 cur = adv
             else:
@@ -763,9 +776,14 @@ class Board:
                       color=VIOLET10, opacity=0.1, node_type=1,
                       stroke_style="solid", parent=None):
         """Узел mind-map. Соединяются узлы обычными стрелками.
-        Ширина по умолчанию — под текст, но не меньше 70."""
+
+        Ширину Холст всё равно подгоняет под текст сам — заданную он
+        перезапишет. По возврату из Холста: ширина ≈ ширина текста + 64,
+        но не меньше 70,5.
+        """
         if width is None:
-            width = max(70.0, text_width(plain_text(text), FS_INTERNAL) + 40)
+            width = max(MINDMAP_MIN,
+                        text_width(plain_text(text), FS_INTERNAL) + MINDMAP_PAD)
         o = self._base("mind-map-node", x, y, width, height, parent)
         o.update({
             "nodeType": node_type,
@@ -777,9 +795,10 @@ class Board:
 
     def code(self, x, y, text="", width=500, height=None, scale=1.0,
              theme="light", parent=None):
-        """Блок кода. theme: light | dark."""
+        """Блок кода. theme: light | dark.
+        Высота = строки × 21 + 30 на поля — выверено по возврату из Холста."""
         if height is None:
-            height = max(31.0, len(str(text).split("\n")) * 31.0)
+            height = len(str(text).split("\n")) * LINE_INTERNAL + CODE_PAD
         o = self._base("code", x, y, width, height, parent)
         o.update({"width": float(width), "scale": float(scale), "theme": theme,
                   "clonedTextValue": str(text)})
@@ -864,7 +883,10 @@ class Board:
         flat = ",".join(f"{round(px, 1)},{round(py, 1)}" for px, py in points)
         xs = [p[0] for p in points] or [0]
         ys = [p[1] for p in points] or [0]
-        pad = stroke_width
+        # Обводка выступает на полтолщины с каждой стороны. Высота — оценка
+        # сверху: algorithm "lazy" сглаживает путь, и кривая не доходит до
+        # заданных экстремумов, поэтому Холст вернёт bounds меньше нашего.
+        pad = stroke_width / 2.0
         o = self._base("drawing", x + min(xs) - pad, y + min(ys) - pad,
                        max(xs) - min(xs) + 2 * pad, max(ys) - min(ys) + 2 * pad, parent)
         o.update({"algorithm": "lazy", "path": flat, "pivot": {"x": 0, "y": 0},
