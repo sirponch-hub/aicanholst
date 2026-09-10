@@ -1,9 +1,11 @@
 # AI can Holst
 
-Скилл для Claude: генерация и чтение файлов онлайн-доски **[Холст](https://holst.so)** (`.holst`).
+Скилл для Claude и Codex: генерация и чтение файлов онлайн-доски
+**[Холст](https://holst.so)** (`.holst`).
 
-Попросите Claude собрать доску — он напишет скрипт, соберёт `.holst`, проверит вёрстку
-и отдаст файл. Вы открываете его в Холсте через «восстановить доску из файла».
+Попросите агента собрать доску — он напишет скрипт, соберёт `.holst`, проверит
+вёрстку и отдаст файл. Вы открываете его в Холсте через «восстановить доску
+из файла».
 
 ```
 Собери доску для ретроспективы на три команды: что мешало, что помогало,
@@ -20,7 +22,9 @@
 
 | | |
 |---|---|
-| `SKILL.md` | Инструкция для модели |
+| `SKILL.md` | Инструкция для агента (стандарт agentskills.io) |
+| `AGENTS.md` | Инструкция для агента, который правит сам репозиторий |
+| `agents/openai.yaml` | Метаданные карточки скилла в приложении Codex |
 | `scripts/holst.py` | Библиотека сборки `.holst` — только stdlib |
 | `scripts/inter_widths.json` | Метрика Inter: по ней считается перенос строк |
 | `scripts/validate.py` | Проверка файла: схема + не вылезает ли текст |
@@ -33,16 +37,38 @@
 
 ## Установка
 
-**Claude Code / Cowork** — склонировать в папку скиллов:
+Скилл сделан по открытому стандарту [agentskills.io](https://agentskills.io),
+поэтому одна и та же папка работает и в Claude, и в Codex — меняется только
+адрес, куда её положить.
+
+**Claude Code и приложение Claude:**
 
 ```bash
 git clone https://github.com/sirponch-hub/aicanholst.git ~/.claude/skills/holst-board
 ```
 
-Для проекта, а не глобально — в `.claude/skills/holst-board` внутри репозитория.
-Claude подхватит скилл сам, когда речь зайдёт о `.holst` или досках Холста.
+**Codex CLI, расширение для IDE и приложение Codex:**
 
-**Как обычная библиотека** — без Claude тоже работает:
+```bash
+git clone https://github.com/sirponch-hub/aicanholst.git ~/.agents/skills/holst-board
+```
+
+Имя папки менять нельзя: стандарт требует, чтобы оно совпадало с полем `name`
+в `SKILL.md`. Агент подхватит скилл сам, когда речь зайдёт о `.holst` или
+досках Холста; в Codex его же можно вызвать явно — `$holst-board`.
+
+Для одного проекта, а не глобально, — то же самое внутри репозитория:
+`.claude/skills/holst-board/` для Claude, `.agents/skills/holst-board/` для Codex.
+
+**Где файловых скиллов нет** (Codex Web, обычные чаты) — соберите автономную
+версию: один файл со вклеенной библиотекой и метрикой шрифта, который можно
+положить в целевой репозиторий или вставить в контекст целиком.
+
+```bash
+python3 tools/build_standalone.py dist/SKILL.md
+```
+
+**Как обычная библиотека** — без агента тоже работает:
 
 ```bash
 git clone https://github.com/sirponch-hub/aicanholst.git && cd aicanholst
@@ -109,10 +135,12 @@ python3 -m unittest discover tests
 форматированием. Официальной спецификации нет — формат может измениться
 без предупреждения.
 
-Не покрыто: таблицы (`table` / `table-cell`) — собираются вручную по образцу из
-выгрузки, см. [`references/format.md`](references/format.md).
+Все 21 тип объектов сверены с эталонной выгрузкой доски, на которую вручную
+вынесены все элементы Холста, и подтверждены обратным импортом: собранный стенд
+Холст открыл целиком. Сверка машинная — `python3 tools/audit.py`.
 
-Не покрыто также: вложенный PDF (`file`) описан, но обратным импортом не проверен.
+Не покрыто: объединённые ячейки таблиц (`merge-R-C`), встраиваемые ссылки
+с `displayType: 2` (карты, видео), аудио и видео внутри `file`.
 
 Геометрия текста выверена по замерам из проекта
 [holst-board](https://github.com/soloveev/holst-board) (Дмитрий Соловьёв), откуда
@@ -140,18 +168,29 @@ Issues и PR приветствуются. Если формат где-то п�
 
 ## English
 
-**AI can Holst** is a Claude skill (and standalone Python library) for generating and
-reading `.holst` files — board exports for [Holst](https://holst.so), a Russian online
-whiteboard positioned as a Miro replacement.
+**AI can Holst** is an agent skill — for Claude and Codex alike — and a standalone
+Python library for generating and reading `.holst` files, the board export format of
+[Holst](https://holst.so), a Russian online whiteboard positioned as a Miro replacement.
 
-Ask Claude to build a board and it writes the script, generates the `.holst`, validates
-the layout and hands you the file. You import it in Holst via "restore board from file".
+Ask the agent to build a board and it writes the script, generates the `.holst`,
+validates the layout and hands you the file. You import it in Holst via "restore
+board from file".
 
-**Install** into your skills folder:
+**Install** into your agent's skills folder — the skill follows the open
+[agentskills.io](https://agentskills.io) standard, so the same directory works
+in both Claude and Codex:
 
 ```bash
+# Claude Code / Claude app
 git clone https://github.com/sirponch-hub/aicanholst.git ~/.claude/skills/holst-board
+
+# Codex CLI / IDE extension / Codex app
+git clone https://github.com/sirponch-hub/aicanholst.git ~/.agents/skills/holst-board
 ```
+
+Keep the directory name: the standard requires it to match the `name` field in
+`SKILL.md`. For surfaces without file-based skills (Codex Web, plain chats), build the
+single-file version with `python3 tools/build_standalone.py dist/SKILL.md`.
 
 **Or use it directly:**
 
